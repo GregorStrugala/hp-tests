@@ -1,0 +1,12 @@
+# Ignore all data (.csv and .xlsx) files
+*.[cC][sS][vV]
+*.[xX][sS][lL][xX]
+heating-data/
+
+# Do not version control the notebooks
+*.ipynb
+
+# Automatically generated directories
+__pycache__/
+.ipynb_checkpoints/
+test/
