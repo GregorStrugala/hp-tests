@@ -2,11 +2,15 @@
 *.[cC][sS][vV]
 *.[xX][sS][lL][xX]
 heating-data/
+cooling-data/
+test/
 
 # Do not version control the notebooks
 *.ipynb
 
-# Automatically generated directories
+# Ignore automatically generated directories
 __pycache__/
 .ipynb_checkpoints/
-test/
+
+# Ignore swap files when staging from Vim
+*.swp
