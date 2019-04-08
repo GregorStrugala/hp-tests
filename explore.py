@@ -35,7 +35,7 @@ ureg.define('ppm = 1e-6 fraction')
 
 Q_ = ureg.Quantity
 
-def read(filename=None, get_time=False, initialdir='./Heating data'):
+def read(filename=None, get_time=False, initialdir='./heating-data'):
     """
     Read a DataTaker file.
 
@@ -69,9 +69,9 @@ def read(filename=None, get_time=False, initialdir='./Heating data'):
         filename = askopenfilename(initialdir=initialdir,
                                    title='Select input file',
                                    filetypes=filetypes)
-
+    
     if filename in ((), ''):  # Cancel button pressed
-        return
+        return None if not get_time else None, None
 
     _, ext = splitext(filename)  # get the file extension
 
@@ -104,7 +104,7 @@ def read(filename=None, get_time=False, initialdir='./Heating data'):
 
     if get_time:
         # Take a minute resolution
-        t = raw_data['Timestamp'].apply(lambda t: t.round('min'))
+        t = raw_data['Timestamp'].apply(lambda t: pd.Timestamp(t).round('min'))
         return raw_data, t
     else:
         return raw_data
