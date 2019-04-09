@@ -692,47 +692,36 @@ def plot_files(var, initialdir='./Heating data', filenames=None,
                 )
 
         elif var in ('Qcond', 'Qev', 'Pcomp'):
-
             # Fetch quantities needed to compute the given variable
-            tci = {
+
+            # First get the adequate refrigerant states
+            # according to the variable to plot.
+            ref_states = {
                 'Qcond':('pout', 'T4', 'pout', 'T6'),
                 'Qev':('pout', 'T6', 'pin', 'T1'),
                 'Pcomp':('pin', 'T1', 'pout', 'T2'),
             }[var]
 
+            # Then get a list of column names as written by the DataTaker
             rm_dup = lambda t: tuple(set(t))  # remove duplicates from tuple
-            thermocal_param = ('f', 'flowrt_r') + rm_dup(tci)
-
-            # Get a list of column names as written by the DataTaker
+            thermocal_param = ('f', 'flowrt_r') + rm_dup(ref_states)
             col_names = list(nconv.loc[thermocal_param, 'col_names'])
 
-            # Use it to get the required properties
-            prop_req = read_file(file, usecols=col_names)
-
-            f, flowrt_r = get(prop_req, 'f', 'flowrt_r')
+            # Finally, use it to fetch the required properties values
+            reqd_props_values = read_file(file, usecols=col_names)
+            
+            # Clean what need to be cleaned
+            f, flowrt_r = get(reqd_props_values, 'f', 'flowrt_r')
             f = f.magnitude
             flowrt_r[(f == 0) | (f == 'UnderRange')] = Q_(0, flowrt_r.units)
 
-            # Give the right inputs to thermocal based on var
-            get_inputs = {
-                'Qcond':{'Tin':'T4', 'Tout':'T6',
-                         'pin':'pout', 'pout':'pout'},
-                'Qev':{'Tin':'T6', 'Tout':'T1',
-                       'pin':'pout', 'pout':'pin'},
-                'Pcomp':{'Tin':'T1', 'Tout':'T2',
-                         'pin':'pin', 'pout':'pout'}
-            }[var]
-
-            # part of thermocal signature
-            thermocal_sign = ('pin', 'Tin', 'pout', 'Tout')
-
             # Get all the required properties as Quantity objects
-            get_param = ['flowrt_r'] + [get_inputs[i] for i in thermocal_sign]
-            pr = get(prop_req, *get_param)
+            reqd_props = ('flowrt_r',) + ref_states
+            qts = get(reqd_props_values, *reqd_props)
 
             dfs.append(
                 pd.DataFrame(
-                    thermocal(var, *pr).to('kW').magnitude, columns=[var]
+                    thermocal(var, *qts).to('kW').magnitude, columns=[var]
                 ).rename(columns={var:filename})
             )
 
