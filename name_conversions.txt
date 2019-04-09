@@ -14,22 +14,22 @@ Tr          Indoor_Return (°C)                  $T_r$               temperature
 Tin         indr_shed_amb (°C)                  $T_{in}$            temperature         degC
 Tout        outdr_shed_amb (°C)                 $T_{out}$           temperature         degC
 Tamb        Ambient Temp (°C)                   $T_{amb}$           temperature         degC
-Tdt         DTaker (°C)                         $T_{dt}$            temperature         degC
+Tdtk        DTaker (°C)                         $T_{dt}$            temperature         degC
 RHs         RH indr_supply (%)                  $\phi_{s}$          relative humidity   pct
 RHr         RH indr_return (%)                  $\phi_{r}$          relative humidity   pct
 RHout       RH_outdoor (%)                      $\phi_{out}$        relative humidity   pct
-TdbOut      RH_temp_outdoor (°C)                $T_{db,out}$        temperature         degC
-pIn         Comp_Inlet_Pressure (kPa)           $p_{in}$            pressure            kPa
-pOut        Comp_Outlet_Pressure (kPa)          $p_{out}$           pressure            kPa
-mDotRef     Ref_Mass_Flow_Gas (g/s)             $\dot{m}_{ref}$     flow rate           g/s
-refDir      Ref_Mass_Flow_Dir (State)           $\gamma_{ref}$      flow direction      -
-PowerA      Compressor Power Phase A (Watts)    $\dot{W}_A$         power               W
-PowerB      Compressor Power Phase B (Watts)    $\dot{W}_B$         power               W
-PowerFanOut Outdoor Unit Fan Power (Watts)      $\dot{W}_{fan,o}$   power               W
+Tout_db     RH_temp_outdoor (°C)                $T_{db,out}$        temperature         degC
+pin         Comp_Inlet_Pressure (kPa)           $p_{in}$            pressure            kPa
+pout        Comp_Outlet_Pressure (kPa)          $p_{out}$           pressure            kPa
+flowrt_r    Ref_Mass_Flow_Gas (g/s)             $\dot{m}_{ref}$     flow rate           g/s
+refdir      Ref_Mass_Flow_Dir (State)           $\gamma_{ref}$      flow direction      -
+Pa          Compressor Power Phase A (Watts)    $\dot{W}_A$         electrical power    W
+Pb          Compressor Power Phase B (Watts)    $\dot{W}_B$         electrical power    W
+Pfan_out    Outdoor Unit Fan Power (Watts)      $\dot{W}_{fan,o}$   electrical power    W
 f           FREQ raw (Hz)                       $f$                 frequency           Hz
-PowerFanIn  Indoor Fan  (kW)                    $\dot{W}_{fan,i}$   power               kW
-#PowerFanIn  Indoor Unit Fan Power (kW)          $\dot{W}_{fan,i}$   power               kW
-PowerTot    Total Unit Power  (kW)              $\dot{W}_{tot}$     power               kW
-#PowerTot    Total_Unit_Pwr (kW)                 $\dot{W}_{tot}$     power               kW
+Pfan_in     Indoor Fan  (kW)                    $\dot{W}_{fan,i}$   electrical power    kW
+#Pfan_in     Indoor Unit Fan Power (kW)          $\dot{W}_{fan,i}$   electrical power    kW
+Ptot        Total Unit Power  (kW)              $\dot{W}_{tot}$     electrical power    kW
+#Ptot        Total_Unit_Pwr (kW)                 $\dot{W}_{tot}$     electrical power    kW
 #Tws        Air Temperature (Deg)               $T_{ws}$            temperature         degC
 #RHws       Rel Humidity (%RH)                  $\phi_{ws}$         relative humidity   pct

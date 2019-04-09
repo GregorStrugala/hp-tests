@@ -9,7 +9,7 @@ It contains the following functions, each with their own documentation:
     get         Extract specific variables from a DataFrame
                 into Quantity objects.
     plot        (Sub)plot one or several Quantity objects.
-    thermo_cal  Compute heat transfer from flowrate, pressure and
+    thermocal   Compute heat transfer from flowrate, pressure and
                 temperatures.
     plot_files  Plot a quantity for several files to allow comparison.
 """
@@ -76,17 +76,17 @@ def read(filename=None, get_time=False, initialdir='./heating-data'):
     _, ext = splitext(filename)  # get the file extension
 
     if ext.lower() == '.csv':
-        fileType = 'csv'
+        filetype = 'csv'
     elif ext.lower() == '.xlsx':
-        fileType = 'excel'
+        filetype = 'excel'
     else:
         raise ValueError('invalid file extension')
 
     # Name of the function that will read the file
-    call = 'read_' + fileType
+    call = 'read_' + filetype
 
     # Read the first line of the .csv (or .xlsx) file
-    raw_data = getattr(pd, call)(filename,nrows=0)
+    raw_data = getattr(pd, call)(filename, nrows=0)
 
     # Display all columns in jupyter
     pd.set_option('display.max_columns', 100)
@@ -115,27 +115,27 @@ def get(raw_data, *args):
 
     All the variables given in the arguments as strings are extracted
     from raw_data. For conciseness sake, the variable names are kept
-    short and thus an external file (name_conversions) associates them
-    with those used in the dataker file. The file also provides the
-    adequate Quantity parameters for each variable (units, label...).
+    short and thus an external file (name_conversions.txt) associates
+    them with those used in the dataker file. The file also provides
+    the adequate Quantity parameters for each variable.
 
     Parameters
     ----------
     raw_data : DataFrame
         A pandas DataFrame containing the raw data.
     *args : {'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'Ts',
-             'Tr', 'Tin', 'Tout', 'Tamb', 'Tdt','RHout','TwbOut', 'pIn',
-             'pOut', 'mDotRef', 'refDir', 'PowerA', 'PowerB',
-             'PowerFanOut', 'f', 'PowerFanIn', 'PowerTot'}
+             'Tr', 'Tin', 'Tout', 'Tamb', 'Tdtk','RHout','Tout_db', 'pin',
+             'pout', 'flowrt_r', 'refDir', 'Pa', 'Pb',
+             'Pfan_out', 'f', 'Pfan_in', 'Ptot'}
 
     Returns
     -------
-    xpint Quantity or iterable of xpint Quantitiy objects
+    xpint Quantity or iterable of xpint Quantity objects
 
     Examples
     --------
     >>> raw_data = read()
-    >>> T4, pOut = get(raw_data, 'T4', 'pOut')
+    >>> T4, pout = get(raw_data, 'T4', 'pout')
 
     >>> properties = ('T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8')
     >>> T1, T2, T3, T4, T5, T6, T7, T8 = get(raw_data, *properties)
@@ -144,7 +144,7 @@ def get(raw_data, *args):
 
     # Read the name converter differently according to the OS
     if platform.system() == 'Linux':
-        nconv = pd.read_fwf('name_conversions', comment='#',
+        nconv = pd.read_fwf('name_conversions.txt', comment='#',
                             widths=[12, 36, 20, 20, 5], index_col=0)
     else:
         nconv = pd.read_csv('name_conversions.txt', delimiter='\t+',
@@ -337,8 +337,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None), sharex='col',
 
     plt.xlabel('$t$ (' + (time if t_str else 'timestamp') + ')');
 
-def thermo_cal(prop, flowrate=None, pin=None, Tin=None, pout=None,
-               Tout=None):
+def thermocal(prop, flowrate=None, pin=None, Tin=None, pout=None, Tout=None):
     """
     Compute power (or heat transfer rate) from thermodynamic quantities.
 
@@ -394,10 +393,12 @@ def thermo_cal(prop, flowrate=None, pin=None, Tin=None, pout=None,
      # Replace by saturated state enthalpy if not in the right phase
     hin[phase_in != exp_phase_in] = PropsSI(
         'H', 'P', pin[phase_in != exp_phase_in],
-        'Q', quality[exp_phase_in], 'R410a')
+        'Q', quality[exp_phase_in], 'R410a'
+    )
     hout[phase_out != exp_phase_out] = PropsSI(
         'H', 'P', pout[phase_out != exp_phase_out],
-        'Q', quality[exp_phase_out], 'R410a')
+        'Q', quality[exp_phase_out], 'R410a'
+    )
 
     # Get the right attributes depending on the input property
     label={'Qcond':'$\dot{Q}_{cond}$',
@@ -412,8 +413,7 @@ def thermo_cal(prop, flowrate=None, pin=None, Tin=None, pout=None,
              )
 
 
-def explore(*args, plot_data=True, return_data=False,
-            filename=None, **kwargs):
+def explore(*args, plot_data=True, return_data=False, filename=None, **kwargs):
     """
     Plot quantities and extract data from DataTaker files.
 
@@ -424,9 +424,9 @@ def explore(*args, plot_data=True, return_data=False,
     Parameters
     ----------
     *args : {'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'Ts',
-             'Tr', 'Tin', 'Tout', 'Tamb', 'Tdt', 'pIn', 'pOut','RHout',
-             'TwbOut', 'mDotRef', 'refDir', 'PowerA', 'PowerB',
-             'PowerFanOut', 'f', 'PowerFanIn', 'PowerTot', 'Qev',
+             'Tr', 'Tin', 'Tout', 'Tamb', 'Tdtk', 'pin', 'pout','RHout',
+             'Tout_db', 'flowrt_r', 'refDir', 'Pa', 'Pb',
+             'Pfan_out', 'f', 'Pfan_in', 'Ptot', 'Qev',
              'Qcond', 'Pcomp', 'Pel'}
         Quantities to be plotted and/or returned as xpint arrays.
     plot_data : bool, default True
@@ -481,30 +481,30 @@ def explore(*args, plot_data=True, return_data=False,
     if 'f' in args:
         plotvar[measurements.index('f')] = get_var('f').clean()
 
-    if any([qt in args for qt in ('mDotRef', 'Qcond', 'Qev', 'Pcomp')]):
+    if any([qt in args for qt in ('flowrt_r', 'Qcond', 'Qev', 'Pcomp')]):
         f = get_var('f').clean()
-        flowrt_r = get_var('mDotRef')
+        flowrt_r = get_var('flowrt_r')
 
         # Impose a zero flow rate whenever f is zero
         flowrt_r[f == 0] = Q_(0, flowrt_r.units)
 
-        if 'mDotRef' in args:
-            plotvar[measurements.index('mDotRef')] = flowrt_r
+        if 'flowrt_r' in args:
+            plotvar[measurements.index('flowrt_r')] = flowrt_r
 
         if any([qt in args for qt in ('Qcond', 'Qev', 'Pcomp')]):
-            pOut = get_var('pOut')
+            pout = get_var('pout')
             if any([qt in args for qt in ('Qev', 'Pcomp')]):
-                pIn = get_var('pIn')
+                pin = get_var('pin')
 
 
     if 'Qcond' in args:
         # Get necessary quantities in SI units
         T4 = get_var('T4')
         T6 = get_var('T6')
-        p4 = pOut.to('Pa')
-        p6 = pOut.to('Pa')
+        p4 = pout.to('Pa')
+        p6 = pout.to('Pa')
 
-        Qcond = thermo_cal('Qcond', flowrt_r, p4, T4, p6, T6).to('kW')
+        Qcond = thermocal('Qcond', flowrt_r, p4, T4, p6, T6).to('kW')
 
         # Add to the plotted variables list
         # while keeping the previous position
@@ -515,10 +515,10 @@ def explore(*args, plot_data=True, return_data=False,
         # Get necessary quantities in SI units
         T1 = get_var('T1')
         T6 = get_var('T6')
-        p1 = pIn.to('Pa')
-        p6 = pOut.to('Pa')
+        p1 = pin.to('Pa')
+        p6 = pout.to('Pa')
 
-        Qev = thermo_cal('Qev', flowrt_r, p6, T6, p1, T1).to('kW')
+        Qev = thermocal('Qev', flowrt_r, p6, T6, p1, T1).to('kW')
 
         # Add to the plotted variables list
         # while keeping the previous position
@@ -529,10 +529,10 @@ def explore(*args, plot_data=True, return_data=False,
         # Get necessary quantities in SI units
         T1 = get_var('T1')
         T2 = get_var('T6')
-        p1 = pIn.to('Pa')
-        p2 = pOut.to('Pa')
+        p1 = pin.to('Pa')
+        p2 = pout.to('Pa')
 
-        Pcomp = thermo_cal('Pcomp', flowrt_r, p1, T1, p2, T2).to('kW')
+        Pcomp = thermocal('Pcomp', flowrt_r, p1, T1, p2, T2).to('kW')
 
         # Add to the plotted variables list
         # while keeping the previous position
@@ -541,8 +541,8 @@ def explore(*args, plot_data=True, return_data=False,
 
     if 'Pel' in args:
         # Get necessary quantities in kW
-        Pa = get_var('PowerA').to('kW')
-        Pb = get_var('PowerB').to('kW')
+        Pa = get_var('Pa').to('kW')
+        Pb = get_var('Pb').to('kW')
 
         # Compute the compressor's electrical consumption
         Pel = Pa + Pb
@@ -581,9 +581,9 @@ def plot_files(var, initialdir='./Heating data', filenames=None,
     Parameters
     ----------
     var : {'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'Ts',
-           'Tr', 'Tin', 'Tout', 'Tamb', 'Tdt', 'RHout', 'TwbOut', 'f',
-           'pIn', 'pOut', 'mDotRef', 'refDir', 'PowerA', 'PowerB',
-           'PowerTot', 'PowerFanOut', 'PowerFanIn',  'Qev', 'Qcond',
+           'Tr', 'Tin', 'Tout', 'Tamb', 'Tdtk', 'RHout', 'Tout_db', 'f',
+           'pin', 'pout', 'flowrt_r', 'refDir', 'Pa', 'Pb',
+           'Ptot', 'Pfan_out', 'Pfan_in',  'Qev', 'Qcond',
            'Pcomp', 'Pel'}
         The quantity that will be plotted.
     initialdir : str, default './Heating data'
@@ -613,7 +613,7 @@ def plot_files(var, initialdir='./Heating data', filenames=None,
 
     # Read the label conversion table differently according to the OS
     if platform.system() == 'Linux':
-        nconv = pd.read_fwf('name_conversions', comment='#',
+        nconv = pd.read_fwf('name_conversions.txt', comment='#',
                             widths=[12, 36, 20, 20, 5], index_col=0)
     else:
         nconv = pd.read_csv('name_conversions.txt', delimiter='\t+',
@@ -672,11 +672,11 @@ def plot_files(var, initialdir='./Heating data', filenames=None,
 
         _, filename = split(file)  # get filename without the path
 
-        if var in ('f', 'mDotRef'):
+        if var in ('f', 'flowrt_r'):
 
-            col_names = list(nconv.loc[('f', 'mDotRef'), 'col_names'])
+            col_names = list(nconv.loc[('f', 'flowrt_r'), 'col_names'])
             df = read_file(file, usecols=col_names)
-            f, flowrt_r = get(df, 'f', 'mDotRef')
+            f, flowrt_r = get(df, 'f', 'flowrt_r')
 
             if var == 'f':
                 dfs.append(
@@ -695,49 +695,51 @@ def plot_files(var, initialdir='./Heating data', filenames=None,
 
             # Fetch quantities needed to compute the given variable
             tci = {
-                'Qcond':('pOut', 'T4', 'pOut', 'T6'),
-                'Qev':('pOut', 'T6', 'pIn', 'T1'),
-                'Pcomp':('pIn', 'T1', 'pOut', 'T2'),
+                'Qcond':('pout', 'T4', 'pout', 'T6'),
+                'Qev':('pout', 'T6', 'pin', 'T1'),
+                'Pcomp':('pin', 'T1', 'pout', 'T2'),
             }[var]
 
-            rd = lambda t: tuple(set(t))  # remove duplicates from tuple
+            rm_dup = lambda t: tuple(set(t))  # remove duplicates from tuple
+            thermocal_param = ('f', 'flowrt_r') + rm_dup(tci)
 
             # Get a list of column names as written by the DataTaker
-            col_names = list(nconv.loc[('f', 'mDotRef') + rd(tci), 'col_names'])
+            col_names = list(nconv.loc[thermocal_param, 'col_names'])
 
-            # Use it to read the appropriate columns
+            # Use it to get the required properties
             prop_req = read_file(file, usecols=col_names)
 
-            f, flowrt_r = get(prop_req, 'f', 'mDotRef')
+            f, flowrt_r = get(prop_req, 'f', 'flowrt_r')
             f = f.magnitude
             flowrt_r[(f == 0) | (f == 'UnderRange')] = Q_(0, flowrt_r.units)
 
-            # Give the right inputs to thermo_cal based on var
+            # Give the right inputs to thermocal based on var
             get_inputs = {
                 'Qcond':{'Tin':'T4', 'Tout':'T6',
-                         'p_in':'pOut', 'p_out':'pOut'},
+                         'pin':'pout', 'pout':'pout'},
                 'Qev':{'Tin':'T6', 'Tout':'T1',
-                       'p_in':'pOut', 'p_out':'pIn'},
+                       'pin':'pout', 'pout':'pin'},
                 'Pcomp':{'Tin':'T1', 'Tout':'T2',
-                         'p_in':'pIn', 'p_out':'pOut'}
+                         'pin':'pin', 'pout':'pout'}
             }[var]
 
-            # thermo_cal input names
-            tc_inputs = ('p_in', 'Tin', 'p_out', 'Tout')
+            # part of thermocal signature
+            thermocal_sign = ('pin', 'Tin', 'pout', 'Tout')
 
             # Get all the required properties as Quantity objects
-            pr = get(prop_req, 'mDotRef', *[get_inputs[i] for i in tc_inputs])
+            get_param = ['flowrt_r'] + [get_inputs[i] for i in thermocal_sign]
+            pr = get(prop_req, *get_param)
 
             dfs.append(
                 pd.DataFrame(
-                    thermo_cal(var, *pr).to('kW').magnitude, columns=[var]
+                    thermocal(var, *pr).to('kW').magnitude, columns=[var]
                 ).rename(columns={var:filename})
             )
 
         elif var == 'Pel':
-            col_names = list(nconv.loc[('PowerA', 'PowerB'), 'col_names'])
+            col_names = list(nconv.loc[('Pa', 'Pb'), 'col_names'])
             phase_power = read_file(file, usecols=col_names)
-            Pa, Pb = get(phase_power, 'PowerA', 'PowerB')
+            Pa, Pb = get(phase_power, 'Pa', 'Pb')
             dfs.append(
                 pd.DataFrame(
                     (Pa + Pb).to('kW').magnitude
