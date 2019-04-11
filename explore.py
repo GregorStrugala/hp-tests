@@ -51,7 +51,7 @@ class Explorer():
     def __init__(self, filename=None):
         self.read(filename) # assigns raw_data attribute
         self.read_file = filename
-        self._create_name_converter() # assigns _name_converter attribute
+        self._build_name_converter() # assigns _name_converter attribute
 
     def read(self, filename=None, initialdir='./heating-data'):
         """
@@ -113,7 +113,7 @@ class Explorer():
         else:
             self.raw_data = getattr(pd, call)(filename)
 
-    def _create_name_converter(self, filename='name_conversions.txt'):
+    def _build_name_converter(self, filename='name_conversions.txt'):
 
         # Read the label conversion table differently according to the OS
         if platform.system() == 'Linux':
