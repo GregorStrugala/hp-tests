@@ -10,6 +10,7 @@ import platform
 from os.path import split, splitext, basename
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename, askopenfilenames
+import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -41,7 +42,7 @@ class Explorer():
         self.read_file = self.read(filename) # assigns raw_data attribute
         self._build_name_converter() # assigns _name_converter attribute
         self.Q_ = UnitRegistry().Quantity
-        self.quantities = dict()
+        self.quantities = {} 
 
     def read(self, filename=None, initialdir='./heating-data'):
         """
@@ -105,7 +106,7 @@ class Explorer():
 
         return basename(filename)
 
-    def build_quantities(self, *quantities, return_quantities=False):
+    def _build_quantities(self, *quantities, update=True):
         """
         Add quantities to the Explorator's quantities attribute,
         optionally returning them as Quantity objects.
@@ -117,22 +118,22 @@ class Explorer():
                        'RHout','Tout_db', 'pin', 'pout', 'flowrt_r',
                        'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
                        'Ptot'}
+        update : boolean, default True
+            If set to False, quantities already present will not be replaced.
 
-        Returns
+        Example
         -------
-        xpint Quantity or iterable of xpint Quantity objects
-
-        Examples
-        --------
         >>> e = exp.Explorer() 
-        >>> T4, pout = e.build_quantities('T4', 'pout',
-        ...                               return_quantities=True)
-
-        >>> quantities = ('T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7')
-        >>> T1, T2, T3, T4, T5, T6, T7 = e.build_quantities(*quantities)
+        >>> quantities = ('T1', 'T2', 'T3', 'T4', 'T5')
+        >>> T1, T2, T3, T4, T5, = e.build_quantities(*quantities, update=False)
 
         """
+
         nconv = self._name_converter
+        if not update:
+            # Keep only quantities not already present
+            quantities = set(self.quantities.keys()) - set(quantities)
+
         for quantity in quantities:
             self.quantities[quantity] = self.Q_(
                 self.raw_data[nconv.loc[quantity, 'col_names']].values,
@@ -140,13 +141,7 @@ class Explorer():
                 prop=nconv.loc[quantity, 'properties'],
                 units=nconv.loc[quantity, 'units']
             )
-
-        if return_quantities:
-            if len(quantities) > 1:
-                return (self.quantities[quantity] for quantity in quantities)
-            else:
-                return self.quantities[quantities[0]]
-
+        
     def get(self, *quantities):
         """
         Return specific quantities from an Explorer as Quantity objects.
@@ -176,7 +171,7 @@ class Explorer():
         >>> T1, T2, T3, T4, T5, T6, T7, T8 = e.get(*properties)
 
         """
-        self.build_quantities(*(set(quantities) - set(self.quantities)))
+        self._build_quantities(*(set(quantities) - set(self.quantities)))
         if len(quantities) > 1:
             return (self.quantities[quantity] for quantity in quantities)
         else:
@@ -199,9 +194,44 @@ class Explorer():
         nconv[nconv=='-'] = None
         self._name_converter = nconv
 
+    def plot(self, quantities='all', **kwargs):
+        """
+        Plot Explorer's quantities against time.
 
-def plot(*args, time='min', step=60, interval=slice(0, None), sharex='col',
-         legend=True, lf=True, loc='best'):
+        If no quantities are given, all the Quantity objects in the
+        Explorer's attribute `quantities` are plotted. Each quantity
+        having an identical dimensionality is plotted in the same axis.
+
+        Parameters
+        ----------
+        quantities : str
+            All the quantities to be plotted, separated by a space.
+            Quantites to be plotted together must be grouped inside (),
+            [] or {}.
+        **kwargs : see function explore.plot.
+
+        Example
+        -------
+        >>> e = exp.Explorer()
+        >>> e.plot('(T1 T2) f')
+
+        """
+        args = []
+        if quantities == 'all':
+            iterator = self.quantities.keys()
+        else:
+            if any(delim in quantities for delim in ('(', '[', '{')):
+                regex_pattern = re.split(r'[()|\[\]|\{\}]', quantities)
+                iterator = (arg.strip() for arg in regex_pattern if arg.strip())
+            else:
+                iterator = quantities.split()
+        for arg in iterator:
+            apnd = list(self.get(*arg.split())) if ' ' in arg else self.get(arg)
+            args.append(apnd)
+        plot(*args, **kwargs)
+
+def plot(*args, time='min', step=60, interval=slice(0, None),
+         sharex='col', legend=True, lf=True, loc='best'):
     """
     Plot variables specified as arguments against time.
 
@@ -375,4 +405,4 @@ def plot(*args, time='min', step=60, interval=slice(0, None), sharex='col',
             ax[i].format_coord = fmtri
 
     plt.xlabel('$t$ (' + (time if t_str else 'timestamp') + ')');
-
+    fig.show()
