@@ -8,14 +8,15 @@ that can be returned by an Explorer object.
 
 import platform
 from os.path import split, splitext, basename
+from itertools import groupby
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename, askopenfilenames
 import re
+import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from xpint import UnitRegistry
-
 
 class Explorer():
     """
@@ -41,9 +42,13 @@ class Explorer():
     def __init__(self, filename=None):
         self.read_file = self.read(filename) # assigns raw_data attribute
         self._build_name_converter() # assigns _name_converter attribute
-        self.Q_ = UnitRegistry().Quantity
+        ureg = UnitRegistry()
+        self.Q_ = ureg.Quantity
         self.quantities = {} 
 
+        ureg.define('fraction = [] = frac = ratio')
+        ureg.define('percent = 1e-2 frac = pct')
+        ureg.define('ppm = 1e-6 fraction')
     def read(self, filename=None, initialdir='./heating-data'):
         """
         Read a DataTaker file and assign it to the raw_data attribute.
@@ -204,7 +209,7 @@ class Explorer():
 
         Parameters
         ----------
-        quantities : str
+        quantities : {'all', 'allsplit', 'allmerge'} or str
             All the quantities to be plotted, separated by a space.
             Quantites to be plotted together must be grouped inside (),
             [] or {}.
@@ -216,18 +221,34 @@ class Explorer():
         >>> e.plot('(T1 T2) f')
 
         """
+
         args = []
-        if quantities == 'all':
+        quantities = 'allmerge' if quantities == 'all' else quantities
+        if quantities == 'allsplit':
             iterator = self.quantities.keys()
+            append = lambda arg: self.get(arg)
+        elif quantities == 'allmerge':
+            def gen():
+                key = lambda q: self.quantities[q].prop
+                for _, prop in groupby(sorted(self.quantities, key=key), key):
+                    yield [self.quantities[q] for q in prop]
+            iterator = gen()
+            append = lambda arg: arg[0] if len(arg) == 1 else arg
+        elif any(delim in quantities for delim in ('(', '[', '{')):
+            regex_pattern = re.split(r'[()|\[\]|\{\}]', quantities)
+            iterator = (arg.strip() for arg in regex_pattern if arg.strip())
+            def append(arg):
+                if ' ' in arg:
+                    return list(self.get(*arg.split()))
+                else:
+                    return self.get(arg)
         else:
-            if any(delim in quantities for delim in ('(', '[', '{')):
-                regex_pattern = re.split(r'[()|\[\]|\{\}]', quantities)
-                iterator = (arg.strip() for arg in regex_pattern if arg.strip())
-            else:
-                iterator = quantities.split()
+            iterator = quantities.split()
+            append = lambda arg: self.get(arg)
+
         for arg in iterator:
-            apnd = list(self.get(*arg.split())) if ' ' in arg else self.get(arg)
-            args.append(apnd)
+            args.append(append(arg))
+
         plot(*args, **kwargs)
 
 def plot(*args, time='min', step=60, interval=slice(0, None),
@@ -297,9 +318,9 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
     t = np.arange(0, length) / res[time] if t_str else time[interval]
 
     # warning messages
-    warn_msg_dim = ('Quantities with different dimensionalities'
+    warn_msg_dim = ('Quantities with different dimensionalities '
                     'are displayed on the same plot')
-    warn_msg_unit = ('Quantities with different units'
+    warn_msg_unit = ('Quantities with different units '
                      'are displayed on the same plot')
 
     # Create statusbar
@@ -405,4 +426,4 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
             ax[i].format_coord = fmtri
 
     plt.xlabel('$t$ (' + (time if t_str else 'timestamp') + ')');
-    fig.show()
+    fig.show(block=False)
