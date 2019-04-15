@@ -4,21 +4,10 @@ This module provides the Explorer class, to process and visualize data.
 In addition, it provides a handful of functions to manipulate the data
 that can be returned by an Explorer object.
 
-(It contains the following functions, each with their own documentation:)
-
-    explore     Plot and/or read the data from a file. This is basically
-                a combination of the functions `read`, `get` and `plot`.
-    read        Read the data from the file into a DataFrame.
-    get         Extract specific variables from a DataFrame
-                into Quantity objects.
-    plot        (Sub)plot one or several Quantity objects.
-    thermocal   Compute heat transfer from flowrate, pressure and
-                temperatures.
-    plot_files  Plot a quantity for several files to allow comparison.
 """
 
 import platform
-from os.path import split, splitext
+from os.path import split, splitext, basename
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename, askopenfilenames
 import numpy as np
@@ -49,9 +38,10 @@ class Explorer():
     """
 
     def __init__(self, filename=None):
-        self.read(filename) # assigns raw_data attribute
-        self.read_file = filename
+        self.read_file = self.read(filename) # assigns raw_data attribute
         self._build_name_converter() # assigns _name_converter attribute
+        self.Q_ = UnitRegistry().Quantity
+        self.quantities = dict()
 
     def read(self, filename=None, initialdir='./heating-data'):
         """
@@ -113,6 +103,85 @@ class Explorer():
         else:
             self.raw_data = getattr(pd, call)(filename)
 
+        return basename(filename)
+
+    def build_quantities(self, *quantities, return_quantities=False):
+        """
+        Add quantities to the Explorator's quantities attribute,
+        optionally returning them as Quantity objects.
+
+        Parameters
+        ----------
+        *quantities : {'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8',
+                       'T9','Ts', 'Tr', 'Tin', 'Tout', 'Tamb', 'Tdtk',
+                       'RHout','Tout_db', 'pin', 'pout', 'flowrt_r',
+                       'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
+                       'Ptot'}
+
+        Returns
+        -------
+        xpint Quantity or iterable of xpint Quantity objects
+
+        Examples
+        --------
+        >>> e = exp.Explorer() 
+        >>> T4, pout = e.build_quantities('T4', 'pout',
+        ...                               return_quantities=True)
+
+        >>> quantities = ('T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7')
+        >>> T1, T2, T3, T4, T5, T6, T7 = e.build_quantities(*quantities)
+
+        """
+        nconv = self._name_converter
+        for quantity in quantities:
+            self.quantities[quantity] = self.Q_(
+                self.raw_data[nconv.loc[quantity, 'col_names']].values,
+                label=nconv.loc[quantity, 'labels'],
+                prop=nconv.loc[quantity, 'properties'],
+                units=nconv.loc[quantity, 'units']
+            )
+
+        if return_quantities:
+            if len(quantities) > 1:
+                return (self.quantities[quantity] for quantity in quantities)
+            else:
+                return self.quantities[quantities[0]]
+
+    def get(self, *quantities):
+        """
+        Return specific quantities from an Explorer as Quantity objects.
+
+        All the specified quantities that are not yet in the Explorer's
+        quantites are added, then all the specified quantities are
+        returned in the form of Quantity objects.
+
+        Parameters
+        ----------
+        *quantities : {'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8',
+                       'T9','Ts', 'Tr', 'Tin', 'Tout', 'Tamb', 'Tdtk',
+                       'RHout','Tout_db', 'pin', 'pout', 'flowrt_r',
+                       'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
+                       'Ptot'}
+
+        Returns
+        -------
+        xpint Quantity or iterable of xpint Quantity objects
+
+        Examples
+        --------
+        >>> e = exp.Eplorer()
+        >>> T4, pout = e.get('T4', 'pout')
+
+        >>> properties = ('T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8')
+        >>> T1, T2, T3, T4, T5, T6, T7, T8 = e.get(*properties)
+
+        """
+        self.build_quantities(*(set(quantities) - set(self.quantities)))
+        if len(quantities) > 1:
+            return (self.quantities[quantity] for quantity in quantities)
+        else:
+            return self.quantities[quantities[0]]
+
     def _build_name_converter(self, filename='name_conversions.txt'):
 
         # Read the label conversion table differently according to the OS
@@ -121,7 +190,7 @@ class Explorer():
                                 widths=[12, 36, 20, 20, 5], index_col=0)
         else:
             nconv = pd.read_csv(filename, delimiter='\t+',
-                            index_col=0, engine='python', comment='#')
+                                index_col=0, engine='python', comment='#')
             nconv_cols = nconv.loc[:, 'col_names'].str.replace('Â', '');
             nconv_units = nconv.loc[:, 'units'].str.replace('Â', '');
             nconv.loc[:, 'col_names'] = nconv_cols 
@@ -129,3 +198,181 @@ class Explorer():
 
         nconv[nconv=='-'] = None
         self._name_converter = nconv
+
+
+def plot(*args, time='min', step=60, interval=slice(0, None), sharex='col',
+         legend=True, lf=True, loc='best'):
+    """
+    Plot variables specified as arguments against time.
+
+    Parameters
+    ----------
+    *args : xpint Quantity, or list of xpint Quantity
+        The quantities to be plotted. Quantities grouped in a list are
+        plotted in the same axis.
+    time : {'s', 'min', 'h', 'day'} or ndarray, default 'min'
+        Controls what is displayed on the x-axis. If 's', 'min', 'h' or
+        'day' is given, a minute timestep is assumed by default and the
+        x-axis is created to fit the length of variables in `*args` (see
+        `step` parameter to set another timestep).
+        Alternatively, an explicit array can be given
+        (including datetime arrays).
+    step : int or float
+        The timestep between each measurement in seconds.
+    interval : slice, default slice(0, None)
+        A slice object containing the range over which the quantities
+        are plotted.
+    sharex : bool or {'none', 'all', 'row', 'col'}, default 'col'
+        Controls sharing of properties among x axis (see parameter
+        `sharex` in `matplotlib.pyplot.subplots` function)
+    legend : bool, default True
+        When set to False, no legend is displayed.
+    lf : bool, default True
+        When set to False, a legend frame is displayed.
+    loc : int or string or pair of floats, default 'best'
+        See `loc` parameter in `matplotlib.pyplot.legend`.
+
+    Examples
+    --------
+    Plot only one varaible (say Tr):
+
+    >>> plot(Tr)
+
+    Plot several variables (say Tr, Ts, f) without legend frame:
+
+    >>> plot(Tr, Ts, f, lf=False)
+
+    Group some variables (say Tr, Ts) in the same axis:
+
+    >>> plot([Tr, Ts], f)
+
+    """
+
+    res = {'s':1/step, 'min':60/step, 'h':3600/step, 'days':86400/step}
+    properties = {
+        'temperature':'$T$', 'electrical power':'$P$',
+        'mechanical power':'$\dot{W}$','heat transfer rate':'$\dot{Q}$',
+        'difference of internal energy rate of change':'$\Delta\dot U$',
+        'flow rate':'$\dot{m}$', 'frequency':'$f$', 'pressure':'$p$',
+        'specific enthalpy':'$h$', 'relative humidity':'$\phi$',
+        'absolute humidity':'$\omega$', 'state':'$\gamma$',
+        'relative error':'$\delta$'
+    }
+
+    # Store this boolean as it is used numerous times
+    t_str = isinstance(time, str)
+
+    a0_list = isinstance(args[0], list)
+    length = len(args[0][0][interval] if a0_list else args[0][interval])
+    t = np.arange(0, length) / res[time] if t_str else time[interval]
+
+    # warning messages
+    warn_msg_dim = ('Quantities with different dimensionalities'
+                    'are displayed on the same plot')
+    warn_msg_unit = ('Quantities with different units'
+                     'are displayed on the same plot')
+
+    # Create statusbar
+    statusbar = {True:'time: {:.2f} {}     {}: {:.2f} {}',
+                 False:'time: {}     {}: {:.2f} {}'}[t_str]
+
+    # Create the figure and axis
+    fig, ax = plt.subplots(len(args), sharex=sharex, facecolor=(.93,.93,.93))
+
+    def y_label(q, attr):
+        """Create a y label for the quantity q."""
+
+        # Ensure that there is a non-empty label
+        # or a property listed in the properties dictionary
+        if (attr == 'label' and q.label is None or
+            attr == 'prop' and q.prop not in properties):
+            return None
+
+        pre = {'label':q.label, 'prop':properties[q.prop]}.get(attr, '')
+
+        # Cannot use Quantity().dimensionless in case of percentages
+        if str(q.units) != 'dimensionless':
+            post = ' ({:~P})'.format(q.units)
+        else:
+            post = ''
+
+        return pre + post if pre + post != '' else None
+
+
+    def fmtr(x, y, sbdim, sbunit, ax):
+        """Make a formatter for the axis statusbar"""
+
+        if t_str:
+            return statusbar.format(x, time, sbdim, y, sbunit)
+
+        else:
+
+            def datefmt(ax):
+                t_min, t_max = (int(t) for t in ax.get_xlim())
+                fmt = '%d %H:%M:%S' if t_max-t_min > 0 else '%H:%M:%S'
+                return mdates.DateFormatter(fmt)
+
+            return statusbar.format(datefmt(ax)(x), time, sbdim, y, sbunit)
+
+
+    if len(args) == 1:  # only one axis (that may have several plots)
+
+        if not isinstance(args[0], list):  # only one plot
+            ax.plot(t, args[0][interval])
+            ax.set(ylabel=y_label(args[0], 'label'))
+
+            # label (or property) and units used in status bar
+            sbdim, sbunit = args[0].prop, '{:~P}'.format(args[0].units)
+
+        else:  # several plots
+            for var in args[0]:
+                ax.plot(t, var[interval], label=var.label)
+
+                if var.dimensionality != args[0][0].dimensionality:
+                    warnings.warn(warn_msg_dim)
+
+                if var.units != args[0][0].units:
+                    warnings.warn(warn_msg_unit)
+
+            # Set y-label from the last element
+            ax.set(ylabel=y_label(args[0][-1], 'prop'))
+
+            sbdim, sbunit = args[0][-1].prop, '{:~P}'.format(args[0][-1].units)
+
+            if legend:
+                ax.legend(loc=loc, frameon=lf)
+
+        ax.format_coord = lambda x, y: fmtr(x, y, sbdim, sbunit, ax)
+
+    else:  # several subplots
+        for i, var in enumerate(args):
+
+            # Only one variable to be plotted in current subplot
+            if not isinstance(var, list):
+                ax[i].plot(t, var[interval])
+                ax[i].set(ylabel=y_label(var, 'label'))
+                sbdim, sbunit = var.prop, '{:~P}'.format(var.units)
+            else:  # several variables to be plotted in current subplot
+                for var2 in var:
+                    ax[i].plot(t, var2[interval], label=var2.label)
+
+                if var2.dimensionality != var[0].dimensionality:
+                    warnings.warn(warn_msg_dim)
+
+                if var2.units != var[0].units:
+                    warnings.warn(warn_msg_unit)
+
+                ax[i].set(ylabel=y_label(var[-1], 'prop'))
+                sbdim, sbunit = var[-1].prop, '{:~P}'.format(var[-1].units)
+                if legend:
+                    ax[i].legend(loc=loc, frameon=lf)
+
+            # kwargs necessary so that each subplot
+            # gets its own statusbar formatter
+            def fmtri(x, y, sbdim=sbdim, sbunit=sbunit):
+                return fmtr(x, y, sbdim, sbunit, ax[i])
+
+            ax[i].format_coord = fmtri
+
+    plt.xlabel('$t$ (' + (time if t_str else 'timestamp') + ')');
+
