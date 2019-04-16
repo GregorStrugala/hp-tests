@@ -50,6 +50,33 @@ class Explorer():
         ureg.define('percent = 1e-2 frac = pct')
         ureg.define('ppm = 1e-6 fraction')
 
+    def _build_name_converter(self, filename='name_conversions.txt'):
+        """
+        Create a DataFrame to get the actual columns names
+        in the DataTaker file.
+
+        Parameters
+        ----------
+        filename : str, default 'name_conversions.txt'
+            The name of the DataTaker file.
+
+        """
+
+        # Read the label conversion table differently according to the OS
+        if platform.system() == 'Linux':
+            nconv = pd.read_fwf(filename, comment='#',
+                                widths=[12, 36, 20, 20, 5], index_col=0)
+        else:
+            nconv = pd.read_csv(filename, delimiter='\t+',
+                                index_col=0, engine='python', comment='#')
+            nconv_cols = nconv.loc[:, 'col_names'].str.replace('Â', '');
+            nconv_units = nconv.loc[:, 'units'].str.replace('Â', '');
+            nconv.loc[:, 'col_names'] = nconv_cols
+            nconv.loc[:, 'units'] = nconv_units
+
+        nconv[nconv=='-'] = None
+        self._name_converter = nconv
+
     def read(self, filename=None, initialdir='./heating-data'):
         """
         Read a DataTaker file and assign it to the raw_data attribute.
@@ -183,23 +210,6 @@ class Explorer():
             return (self.quantities[quantity] for quantity in quantities)
         else:
             return self.quantities[quantities[0]]
-
-    def _build_name_converter(self, filename='name_conversions.txt'):
-
-        # Read the label conversion table differently according to the OS
-        if platform.system() == 'Linux':
-            nconv = pd.read_fwf(filename, comment='#',
-                                widths=[12, 36, 20, 20, 5], index_col=0)
-        else:
-            nconv = pd.read_csv(filename, delimiter='\t+',
-                                index_col=0, engine='python', comment='#')
-            nconv_cols = nconv.loc[:, 'col_names'].str.replace('Â', '');
-            nconv_units = nconv.loc[:, 'units'].str.replace('Â', '');
-            nconv.loc[:, 'col_names'] = nconv_cols
-            nconv.loc[:, 'units'] = nconv_units
-
-        nconv[nconv=='-'] = None
-        self._name_converter = nconv
 
     def plot(self, quantities='all', **kwargs):
         """
