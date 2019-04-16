@@ -147,7 +147,7 @@ class Explorer():
                        'T9','Ts', 'Tr', 'Tin', 'Tout', 'Tamb', 'Tdtk',
                        'RHout','Tout_db', 'pin', 'pout', 'flowrt_r',
                        'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
-                       'Ptot'}
+                       'Ptot', Qcond, Qev, Pcomp}
         update : boolean, default True
             If set to False, quantities already present will not be
             replaced.
@@ -166,8 +166,35 @@ class Explorer():
             quantities = set(self.quantities.keys()) - set(quantities)
 
         for quantity in quantities:
-            self.quantities[quantity] = self.Q_(
-                self.raw_data[nconv.loc[quantity, 'col_names']].values,
+            if quantity in ('f', 'flowrt_r', 'Qcond', 'Qev', 'Pcomp'):
+                f = self.raw_data[nconv.loc['f', 'col_names']].values
+                f[f == 'UnderRange'] = 0
+                f = f.astype(float) / 2
+                if quantity == 'f':
+                    mag = f
+                else:
+                    flowrt_r = self.raw_data[
+                        nconv.loc['flowrt_r', 'col_names']
+                    ].values
+                    flowrt_r[f == 0] = 0
+                    
+                    if quantity == 'flowrt_r':
+                        mag = flowrt_r
+                    else:
+                        # First get the adequate refrigerant states
+                        # according to the variable to plot.
+                        ref_states = {
+                            'Qcond':'pout T4 pout T6',
+                            'Qev':'pout T6 pin T1',
+                            'Pcomp':'pin T1 pout T2',
+                        }[quantity]
+                        heat_params = self.get('flowrt_r ' + ref_states)
+                        pow_kW = self._heat(quantity, *heat_params).to('kW')
+                        self.quantities[quantity] = pow_kW
+                        return
+            else:
+                mag = self.raw_data[nconv.loc[quantity, 'col_names']].values
+            self.quantities[quantity] = self.Q_(mag,
                 label=nconv.loc[quantity, 'labels'],
                 prop=nconv.loc[quantity, 'properties'],
                 units=nconv.loc[quantity, 'units']
@@ -187,7 +214,7 @@ class Explorer():
                      separated by spaces
                      {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts Tr Tin Tout Tamb Tdtk
                       f RHout Tout_db pin pout flowrt_r refdir Pa Pb
-                      Pfan_out Pfan_in Ptot}
+                      Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
 
         Returns
         -------
@@ -241,7 +268,7 @@ class Explorer():
         # Define an iterator and an appender to add the right quantities
         # to the args list
         if quantities == 'allsplit':
-            iterator = self.quantities.keys()
+            iterator = list(''.join(self.quantities.keys()))
             appender = lambda arg: self.get(arg)
         elif quantities == 'allmerge':
             def gen():
@@ -319,7 +346,7 @@ class Explorer():
         exp_phase_in, exp_phase_out = {'Qcond':('gas', 'liquid'),
                                        'Qev':('liquid', 'gas'),
                                        'Pcomp':('gas', 'gas'),
-                                       'Pel':(None, None)}[prop]
+                                       'Pel':(None, None)}[power]
         # Get quality based on expected phase
         quality = {'liquid':0, 'gas':1, None:None}
 
@@ -337,11 +364,11 @@ class Explorer():
         label={'Qcond':'$\dot{Q}_{cond}$',
                'Qev':'$\dot{Q}_{ev}$',
                'Pcomp':'$P_{comp}$',
-               }[prop]
+               }[power]
         prop = 'mechanical power' if power == 'Pcomp' else 'heat transfer rate'
         
         # Return result in watts
-        return self.Q_(mass * (hout - hin) * (-1 if power == 'Qcond' else 1),
+        return self.Q_(flow * (hout - hin) * (-1 if power == 'Qcond' else 1),
                        label=label, units='W', prop=prop
                  )
         
