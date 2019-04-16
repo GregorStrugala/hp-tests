@@ -259,11 +259,11 @@ class Explorer():
             iterator = (arg.strip() for arg in regex_pattern if arg.strip())
             def appender(arg):
                 if ' ' in arg:
-                    return list(self.get(*arg.split()))
+                    return list(self.get(arg))
                 else:
                     return self.get(arg)
         else:
-            iterator = quantities.split()
+            iterator = [quantities]
             appender = lambda arg: self.get(arg)
 
         for arg in iterator:
@@ -271,21 +271,21 @@ class Explorer():
 
         plot(*args, **kwargs)
     
-    @ureg.wraps(None, (None, None, ureg.kilogram/ureg.second, ureg.pascal,
-                       ureg.kelvin, ureg.pascal, ureg.kelvin)) 
-    def _heat(self, prop, mass=None, pin=None, Tin=None, pout=None, Tout=None):
+    @ureg.wraps(None, (None, None, ureg.kilogram/ureg.second,
+                       ureg.pascal, ureg.kelvin, ureg.pascal, ureg.kelvin)) 
+    def _heat(self, power, flow=None,
+              pin=None, Tin=None, pout=None, Tout=None):
         """
-        Compute heat transfer (or heat transfer rate) from thermodynamic
-        quantities.
+        Compute heat transfer rate from thermodynamic quantities.
 
         All provided quantities must be (x)pint Quantity objects, with a
         magnitude of the same length.
 
         Parameters
         ----------
-        prop : {'Qcond', 'Qev', 'Pcomp'}
+        power : {'Qcond', 'Qev', 'Pcomp'}
             Property to be evaluated.
-        flowrate : Quantity
+        flow : Quantity
             The mass flow rate of the fluid exchanging heat or work.
         pin : Quantity
             Inlet fluid pressure.
@@ -298,17 +298,12 @@ class Explorer():
 
         Returns
         -------
-        out : Quantity
-            Mass (flow rate) multiplied by the enthalpy difference,
-            i.e. the heat transfer (rate) in joules (per second).
+        Quantity
+            Mass flow rate multiplied by the enthalpy difference,
+            i.e. the heat transfer rate in watts.
 
         """
         
-#        pin = pin.to('Pa').magnitude
-#        Tin = Tin.to('K').magnitude
-#        pout = pout.to('Pa').magnitude
-#        Tout = Tout.to('K').magnitude
-
         # Get the enthalpies using CoolProp, in J/kg
         hin = PropsSI('H', 'P', pin, 'T', Tin, 'R410a')
         hout = PropsSI('H', 'P', pout, 'T', Tout, 'R410a')
@@ -342,13 +337,12 @@ class Explorer():
         label={'Qcond':'$\dot{Q}_{cond}$',
                'Qev':'$\dot{Q}_{ev}$',
                'Pcomp':'$P_{comp}$',
-               'Wcomp':'W_{comp}',
                }[prop]
-        p_type = 'mechanical power' if prop == 'Pcomp' else 'heat transfer rate'
-        flowdir = -1 if prop == 'Qcond' else 1
+        prop = 'mechanical power' if power == 'Pcomp' else 'heat transfer rate'
+        
         # Return result in watts
-        return Q_(flowrate.to('kg/s').magnitude * (hout - hin) * flowdir,
-                  label=label, units='W', prop=p_type
+        return self.Q_(mass * (hout - hin) * (-1 if power == 'Qcond' else 1),
+                       label=label, units='W', prop=prop
                  )
         
 def plot(*args, time='min', step=60, interval=slice(0, None),
