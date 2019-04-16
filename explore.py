@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from xpint import UnitRegistry
+from CoolProp.CoolProp import PropsSI, PhaseSI
 
 class Explorer():
     """
@@ -38,17 +39,17 @@ class Explorer():
     read_file : str
         The name of the DataTaker file that was read by the Explorer.
     """
-
+    
+    ureg = UnitRegistry()
+    Q_ = ureg.Quantity
+    ureg.define('fraction = [] = frac = ratio')
+    ureg.define('percent = 1e-2 frac = pct')
+    ureg.define('ppm = 1e-6 fraction')
     def __init__(self, filename=None):
         self.read_file = self.read(filename) # assigns raw_data attribute
         self._build_name_converter() # assigns _name_converter attribute
-        ureg = UnitRegistry()
-        self.Q_ = ureg.Quantity
         self.quantities = {}
         # Define 'adimensional units' for humidity
-        ureg.define('fraction = [] = frac = ratio')
-        ureg.define('percent = 1e-2 frac = pct')
-        ureg.define('ppm = 1e-6 fraction')
 
     def _build_name_converter(self, filename='name_conversions.txt'):
         """
@@ -266,10 +267,90 @@ class Explorer():
             appender = lambda arg: self.get(arg)
 
         for arg in iterator:
-            args.append(append(arg))
+            args.append(appender(arg))
 
         plot(*args, **kwargs)
+    
+    @ureg.wraps(None, (None, None, ureg.kilogram/ureg.second, ureg.pascal,
+                       ureg.kelvin, ureg.pascal, ureg.kelvin)) 
+    def _heat(self, prop, mass=None, pin=None, Tin=None, pout=None, Tout=None):
+        """
+        Compute heat transfer (or heat transfer rate) from thermodynamic
+        quantities.
 
+        All provided quantities must be (x)pint Quantity objects, with a
+        magnitude of the same length.
+
+        Parameters
+        ----------
+        prop : {'Qcond', 'Qev', 'Pcomp'}
+            Property to be evaluated.
+        flowrate : Quantity
+            The mass flow rate of the fluid exchanging heat or work.
+        pin : Quantity
+            Inlet fluid pressure.
+        Tin : Quantity
+            Inlet fluid temperature.
+        pout : Quantity
+            Outlet fluid pressure.
+        Tout : Quantity
+            Outlet fluid temperature.
+
+        Returns
+        -------
+        out : Quantity
+            Mass (flow rate) multiplied by the enthalpy difference,
+            i.e. the heat transfer (rate) in joules (per second).
+
+        """
+        
+#        pin = pin.to('Pa').magnitude
+#        Tin = Tin.to('K').magnitude
+#        pout = pout.to('Pa').magnitude
+#        Tout = Tout.to('K').magnitude
+
+        # Get the enthalpies using CoolProp, in J/kg
+        hin = PropsSI('H', 'P', pin, 'T', Tin, 'R410a')
+        hout = PropsSI('H', 'P', pout, 'T', Tout, 'R410a')
+
+        # Check the phase, because points in and out may be
+        # on the wrong side of the saturation curve
+        phase_in = np.array([PhaseSI('P', p, 'T', T, 'R410a')
+                             for p, T in zip(pin, Tin)])
+        phase_out = np.array([PhaseSI('P', p, 'T', T, 'R410a')
+                              for p, T in zip(pout, Tout)])
+
+        # Assign the expected phases based on the specified property
+        exp_phase_in, exp_phase_out = {'Qcond':('gas', 'liquid'),
+                                       'Qev':('liquid', 'gas'),
+                                       'Pcomp':('gas', 'gas'),
+                                       'Pel':(None, None)}[prop]
+        # Get quality based on expected phase
+        quality = {'liquid':0, 'gas':1, None:None}
+
+        # Replace by saturated state enthalpy if not in the right phase
+        hin[phase_in != exp_phase_in] = PropsSI(
+            'H', 'P', pin[phase_in != exp_phase_in],
+            'Q', quality[exp_phase_in], 'R410a'
+        )
+        hout[phase_out != exp_phase_out] = PropsSI(
+            'H', 'P', pout[phase_out != exp_phase_out],
+            'Q', quality[exp_phase_out], 'R410a'
+        )
+        
+        # Get the right attributes depending on the input property
+        label={'Qcond':'$\dot{Q}_{cond}$',
+               'Qev':'$\dot{Q}_{ev}$',
+               'Pcomp':'$P_{comp}$',
+               'Wcomp':'W_{comp}',
+               }[prop]
+        p_type = 'mechanical power' if prop == 'Pcomp' else 'heat transfer rate'
+        flowdir = -1 if prop == 'Qcond' else 1
+        # Return result in watts
+        return Q_(flowrate.to('kg/s').magnitude * (hout - hin) * flowdir,
+                  label=label, units='W', prop=p_type
+                 )
+        
 def plot(*args, time='min', step=60, interval=slice(0, None),
          sharex='col', legend=True, lf=True, loc='best'):
     """
