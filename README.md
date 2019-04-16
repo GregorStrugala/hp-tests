@@ -32,5 +32,5 @@ help(xpint.UnitRegistry().Quantity)
 | `read`          | Read the data from the file into a DataFrame. |
 | `get`           | Extract specific variables from a DataFrame into `Quantity` objects. |
 | `plot`          | (Sub)plot one or several `Quantity` objects. |
-| `thermo_cal` 		| Compute heat transfer from flowrate, pressures and temperatures. |
+| `thermo_cal` 		| Compute heat transfer from flow rate, pressures and temperatures. |
 | `plot_files`    | Plot a quantity for several files to allow comparison. |

@@ -45,10 +45,11 @@ class Explorer():
         ureg = UnitRegistry()
         self.Q_ = ureg.Quantity
         self.quantities = {}
-
+        # Define 'adimensional units' for humidity
         ureg.define('fraction = [] = frac = ratio')
         ureg.define('percent = 1e-2 frac = pct')
         ureg.define('ppm = 1e-6 fraction')
+
     def read(self, filename=None, initialdir='./heating-data'):
         """
         Read a DataTaker file and assign it to the raw_data attribute.
@@ -67,7 +68,6 @@ class Explorer():
 
         if filename is None:
             Tk().withdraw()  # remove tk window
-
             # Open dialog window in initialdir
             filetypes=(('All files', '.*'),
                        ('CSV', '.csv'),
@@ -76,8 +76,7 @@ class Explorer():
             filename = askopenfilename(initialdir=initialdir,
                                        title='Select input file',
                                        filetypes=filetypes)
-
-        # return if the Cancel button is pressed
+        # Return if the Cancel button is pressed
         if filename in ((), ''):
             return None if not get_time else None, None
 
@@ -92,10 +91,8 @@ class Explorer():
 
         # Define the reader function according to the file type
         call = 'read_' + filetype
-
         # Read the first line of the file
         raw_data = getattr(pd, call)(filename, nrows=0)
-
         # Fetch the data
         if any( word in list(raw_data)[0] for word in
                ['load', 'aux', 'setpoint', '|', 'PdT'] ):
@@ -148,7 +145,7 @@ class Explorer():
                 units=nconv.loc[quantity, 'units']
             )
 
-    def get(self, *quantities):
+    def get(self, quantities):
         """
         Return specific quantities from an Explorer as Quantity objects.
 
@@ -158,11 +155,11 @@ class Explorer():
 
         Parameters
         ----------
-        *quantities : {'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8',
-                       'T9','Ts', 'Tr', 'Tin', 'Tout', 'Tamb', 'Tdtk',
-                       'RHout','Tout_db', 'pin', 'pout', 'flowrt_r',
-                       'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
-                       'Ptot'}
+        quantities : str with a combination of the following items,
+                     separated by spaces
+                     {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts Tr Tin Tout Tamb Tdtk
+                      f RHout Tout_db pin pout flowrt_r refdir Pa Pb
+                      Pfan_out Pfan_in Ptot}
 
         Returns
         -------
@@ -177,7 +174,11 @@ class Explorer():
         >>> T1, T2, T3, T4, T5, T6, T7 = e.get(*properties)
 
         """
+        
+        quantities = quantities.split()
+        # Only build quantities not already in the Explorer's quantities
         self._build_quantities(*(set(quantities) - set(self.quantities)))
+        # Return a Quantity if there is only one element in quantities
         if len(quantities) > 1:
             return (self.quantities[quantity] for quantity in quantities)
         else:
@@ -223,29 +224,36 @@ class Explorer():
 
         """
 
-        args = []
+        args = [] # parameters to pass to plot function
         quantities = 'allmerge' if quantities == 'all' else quantities
+        
+        # Define an iterator and an appender to add the right quantities
+        # to the args list
         if quantities == 'allsplit':
             iterator = self.quantities.keys()
-            append = lambda arg: self.get(arg)
+            appender = lambda arg: self.get(arg)
         elif quantities == 'allmerge':
             def gen():
+                # Group quantities by property
                 key = lambda q: self.quantities[q].prop
                 for _, prop in groupby(sorted(self.quantities, key=key), key):
+                    # Yield a list in any case, the appender will take
+                    # care of the cases with only one element
                     yield [self.quantities[q] for q in prop]
             iterator = gen()
-            append = lambda arg: arg[0] if len(arg) == 1 else arg
+            appender = lambda arg: arg[0] if len(arg) == 1 else arg
         elif any(delim in quantities for delim in ('(', '[', '{')):
+            # Split but keep grouped quantities together
             regex_pattern = re.split(r'[()|\[\]|\{\}]', quantities)
             iterator = (arg.strip() for arg in regex_pattern if arg.strip())
-            def append(arg):
+            def appender(arg):
                 if ' ' in arg:
                     return list(self.get(*arg.split()))
                 else:
                     return self.get(arg)
         else:
             iterator = quantities.split()
-            append = lambda arg: self.get(arg)
+            appender = lambda arg: self.get(arg)
 
         for arg in iterator:
             args.append(append(arg))
@@ -427,4 +435,3 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
             ax[i].format_coord = fmtri
 
     plt.xlabel('$t$ (' + (time if t_str else 'timestamp') + ')');
-    fig.show(block=False)
