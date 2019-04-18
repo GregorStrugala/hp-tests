@@ -161,40 +161,59 @@ class Explorer():
         """
 
         nconv = self._name_converter
-        if not update:
-            # Keep only quantities not already present
-            quantities = set(self.quantities.keys()) - set(quantities)
+        stored_quantities = set(self.quantities.keys()) if not update else set()
+        quantities = set(quantities) - stored_quantities
+        # quantities are divided into 3 categories:
+        #   those whose magnitude require a bit of cleaning,
+        #   those depending upon other quantities to be computed,
+        #   and those that can be taken 'as is'.
+        to_clean = quantities.intersection({'f', 'flowrt_r'})
+        dependant = quantities.intersection({'Qcond', 'Qev', 'Pcomp', 'Pel'})
+        as_is = quantities - to_clean - dependant
+        
+        if not update and 'flowrt_r' in to_clean and to_clean:
+            # Since update is False, flowrt_r is not in self.quantities
+            self._build_quantities('flowrt_r', update=True)
+        elif to_clean:
+            f = self.raw_data[nconv.loc['f', 'col_names']].values
+            f[f == 'UnderRange'] = 0
+            f = f.astype(float) / 2 # actual compressor frequency
+            if 'f' in to_clean:
+                self.quantities['f'] = self.Q_(
+                    f,
+                    label=nconv.loc['f', 'labels'],
+                    prop=nconv.loc['f', 'properties'],
+                    units=nconv.loc['f', 'units']
+                )
+            if 'flowrt_r' in to_clean:
+                flowrt_r = self.raw_data[
+                    nconv.loc['flowrt_r', 'col_names']
+                ].values
+                flowrt_r[f == 0] = 0
+                self.quantities['flowrt_r'] = self.Q_(
+                    flowrt_r,
+                    label=nconv.loc['flowrt_r', 'labels'],
+                    prop=nconv.loc['flowrt_r', 'properties'],
+                    units=nconv.loc['flowrt_r', 'units']
+                )
 
-        for quantity in quantities:
-            if quantity in ('f', 'flowrt_r', 'Qcond', 'Qev', 'Pcomp'):
-                f = self.raw_data[nconv.loc['f', 'col_names']].values
-                f[f == 'UnderRange'] = 0
-                f = f.astype(float) / 2
-                if quantity == 'f':
-                    mag = f
-                else:
-                    flowrt_r = self.raw_data[
-                        nconv.loc['flowrt_r', 'col_names']
-                    ].values
-                    flowrt_r[f == 0] = 0
-                    
-                    if quantity == 'flowrt_r':
-                        mag = flowrt_r
-                    else:
-                        # First get the adequate refrigerant states
-                        # according to the variable to plot.
-                        ref_states = {
-                            'Qcond':'pout T4 pout T6',
-                            'Qev':'pout T6 pin T1',
-                            'Pcomp':'pin T1 pout T2',
-                        }[quantity]
-                        heat_params = self.get('flowrt_r ' + ref_states)
-                        pow_kW = self._heat(quantity, *heat_params).to('kW')
-                        self.quantities[quantity] = pow_kW
-                        return
-            else:
-                mag = self.raw_data[nconv.loc[quantity, 'col_names']].values
-            self.quantities[quantity] = self.Q_(mag,
+        for quantity in dependant - {'Pel'}:
+            # First get the adequate refrigerant states
+            # according to the quantity to build
+            ref_states = {
+                'Qcond':'pout T4 pout T6',
+                'Qev':'pout T6 pin T1',
+                'Pcomp':'pin T1 pout T2',
+            }[quantity]
+            heat_params = self.get('flowrt_r ' + ref_states)
+            pow_kW = self._heat(quantity, *heat_params).to('kW')
+            self.quantities[quantity] = pow_kW
+
+        # TODO: treat the Pel case
+
+        for quantity in as_is:
+            magnitude = self.raw_data[nconv.loc[quantity, 'col_names']].values
+            self.quantities[quantity] = self.Q_(magnitude,
                 label=nconv.loc[quantity, 'labels'],
                 prop=nconv.loc[quantity, 'properties'],
                 units=nconv.loc[quantity, 'units']
@@ -225,8 +244,8 @@ class Explorer():
         >>> e = exp.Eplorer()
         >>> T4, pout = e.get('T4', 'pout')
 
-        >>> properties = ('T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7')
-        >>> T1, T2, T3, T4, T5, T6, T7 = e.get(*properties)
+        >>> properties = ('T1 T2 T3 T4 T5 T6 T7')
+        >>> T1, T2, T3, T4, T5, T6, T7 = e.get(properties)
 
         """
         
@@ -268,7 +287,7 @@ class Explorer():
         # Define an iterator and an appender to add the right quantities
         # to the args list
         if quantities == 'allsplit':
-            iterator = list(''.join(self.quantities.keys()))
+            iterator = list(' '.join(self.quantities.keys()))
             appender = lambda arg: self.get(arg)
         elif quantities == 'allmerge':
             def gen():
