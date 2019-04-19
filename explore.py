@@ -287,7 +287,7 @@ class Explorer():
         # Define an iterator and an appender to add the right quantities
         # to the args list
         if quantities == 'allsplit':
-            iterator = list(' '.join(self.quantities.keys()))
+            iterator = self.quantities.keys()
             appender = lambda arg: self.get(arg)
         elif quantities == 'allmerge':
             def gen():
@@ -309,7 +309,7 @@ class Explorer():
                 else:
                     return self.get(arg)
         else:
-            iterator = [quantities]
+            iterator = quantities.split()
             appender = lambda arg: self.get(arg)
 
         for arg in iterator:
