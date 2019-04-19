@@ -16,7 +16,7 @@ be directly called by the user, quantities that are not in the
 *DataTaker* file will automatically be computed.
 
 An `Explorer` object is initialized with the name of a data file.
-Its [methods](#methods-of-explorer-class) allow to plot various
+Its [methods](#methods-of-the-explorer-class) allow to plot various
 quantities or retrieve them as `Quantity` objects.
 This last feature can be useful if some non-implemented calculations
 need to be done.
