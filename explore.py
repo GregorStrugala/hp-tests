@@ -520,7 +520,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
                 fmt = '%d %H:%M:%S' if t_max-t_min > 0 else '%H:%M:%S'
                 return mdates.DateFormatter(fmt)
 
-            return statusbar.format(datefmt(ax)(x), time, sbdim, y, sbunit)
+            return statusbar.format(datefmt(ax)(x), sbdim, y, sbunit)
 
 
     if len(args) == 1:  # only one axis (that may have several plots)
