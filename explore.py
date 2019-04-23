@@ -15,7 +15,10 @@ import re
 import warnings
 import numpy as np
 import pandas as pd
+from pandas.plotting import register_matplotlib_converters
+register_matplotlib_converters()
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from xpint import UnitRegistry
 from CoolProp.CoolProp import PropsSI, PhaseSI
 
