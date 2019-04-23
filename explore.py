@@ -265,7 +265,7 @@ class Explorer():
         else:
             return self.quantities[quantities[0]]
 
-    def plot(self, quantities='all', **kwargs):
+    def plot(self, quantities='all', timestamp=False, **kwargs):
         """
         Plot Explorer's quantities against time.
 
@@ -321,7 +321,13 @@ class Explorer():
 
         for arg in iterator:
             args.append(appender(arg))
-
+        
+        if timestamp:
+            # Take a minute resolution
+            as_rounded_timestamp = lambda t: pd.Timestamp(t).round('min')
+            t = self.raw_data['Timestamp'].apply(as_rounded_timestamp)
+            kwargs['time'] = t
+        
         plot(*args, **kwargs)
     
     @ureg.wraps(None, (None, None, ureg.kilogram/ureg.second,
