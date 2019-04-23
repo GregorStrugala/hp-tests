@@ -163,8 +163,8 @@ class Explorer():
         """
 
         nconv = self._name_converter
-        stored_quantities = set(self.quantities.keys()) if not update else set()
-        quantities = set(quantities) - stored_quantities
+        stored_quantities = self.quantities.keys() if not update else {}
+        quantities = set(quantities) - set(stored_quantities)
         # quantities are divided into 3 categories:
         #   those whose magnitude require a bit of cleaning,
         #   those depending upon other quantities to be computed,
@@ -211,7 +211,12 @@ class Explorer():
             pow_kW = self._heat(quantity, *heat_params).to('kW')
             self.quantities[quantity] = pow_kW
 
-        # TODO: treat the Pel case
+        if 'Pel' in dependant:
+            Pel = sum(*self.get('Pa Pb'))
+            self.quantities['Pel'] = self.Q_(Pel.magnitude,
+                                             label='$P_{el}$',
+                                             prop='electrical power',
+                                             units=Pel.units).to('kW')
 
         for quantity in as_is:
             magnitude = self.raw_data[nconv.loc[quantity, 'col_names']].values
