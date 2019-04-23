@@ -212,7 +212,7 @@ class Explorer():
             self.quantities[quantity] = pow_kW
 
         if 'Pel' in dependant:
-            Pel = sum(*self.get('Pa Pb'))
+            Pel = np.add(*self.get('Pa Pb'))
             self.quantities['Pel'] = self.Q_(Pel.magnitude,
                                              label='$P_{el}$',
                                              prop='electrical power',
