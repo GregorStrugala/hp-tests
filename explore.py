@@ -442,7 +442,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
 
     Examples
     --------
-    Plot only one varaible (say Tr):
+    Plot only one variable (say Tr):
 
     >>> plot(Tr)
 
@@ -467,29 +467,27 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
         'relative error':'$\delta$'
     }
 
-    # Store this boolean as it is used numerous times
+    # Store this boolean as it is used numerous times.
     t_str = isinstance(time, str)
 
     a0_list = isinstance(args[0], list)
     length = len(args[0][0][interval] if a0_list else args[0][interval])
     t = np.arange(0, length) / res[time] if t_str else time[interval]
 
-    # warning messages
     warn_msg_dim = ('Quantities with different dimensionalities '
                     'are displayed on the same plot')
     warn_msg_unit = ('Quantities with different units '
                      'are displayed on the same plot')
 
-    # Create statusbar
+    # Create the statusbar string to be formatted.
     statusbar = {True:'time: {:.2f} {}     {}: {:.2f} {}',
                  False:'time: {}     {}: {:.2f} {}'}[t_str]
 
-    # Create the figure and axis
+    # Create the figure and axis.
     fig, ax = plt.subplots(len(args), sharex=sharex, facecolor=(.93,.93,.93))
 
     def y_label(q, attr):
         """Create a y label for the quantity q."""
-
         # Ensure that there is a non-empty label
         # or a property listed in the properties dictionary
         if (attr == 'label' and q.label is None or
@@ -509,64 +507,55 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
 
     def fmtr(x, y, sbdim, sbunit, ax):
         """Make a formatter for the axis statusbar"""
-
         if t_str:
             return statusbar.format(x, time, sbdim, y, sbunit)
-
         else:
-
             def datefmt(ax):
                 t_min, t_max = (int(t) for t in ax.get_xlim())
                 fmt = '%d %H:%M:%S' if t_max-t_min > 0 else '%H:%M:%S'
                 return mdates.DateFormatter(fmt)
-
             return statusbar.format(datefmt(ax)(x), sbdim, y, sbunit)
 
+    if len(args) == 1:  # There is only one axis (that may have several plots).
 
-    if len(args) == 1:  # only one axis (that may have several plots)
-
-        if not isinstance(args[0], list):  # only one plot
+        if not isinstance(args[0], list):  # There is only one plot.
             ax.plot(t, args[0][interval])
             ax.set(ylabel=y_label(args[0], 'label'))
-
-            # label (or property) and units used in status bar
+            # Label (or property) and units used in status bar
             sbdim, sbunit = args[0].prop, '{:~P}'.format(args[0].units)
 
-        else:  # several plots
+        else:  # There are several plots.
             for var in args[0]:
                 ax.plot(t, var[interval], label=var.label)
-
+                
                 if var.dimensionality != args[0][0].dimensionality:
                     warnings.warn(warn_msg_dim)
-
                 if var.units != args[0][0].units:
                     warnings.warn(warn_msg_unit)
 
-            # Set y-label from the last element
+            # The y-label is by default that of the last element.
             ax.set(ylabel=y_label(args[0][-1], 'prop'))
 
             sbdim, sbunit = args[0][-1].prop, '{:~P}'.format(args[0][-1].units)
-
             if legend:
                 ax.legend(loc=loc, frameon=lf)
 
         ax.format_coord = lambda x, y: fmtr(x, y, sbdim, sbunit, ax)
 
-    else:  # several subplots
+    else:  # There are several subplots.
         for i, var in enumerate(args):
-
-            # Only one variable to be plotted in current subplot
+            # If var is not a list, there is only one variable
+            # to be plotted in the current subplot.
             if not isinstance(var, list):
                 ax[i].plot(t, var[interval])
                 ax[i].set(ylabel=y_label(var, 'label'))
                 sbdim, sbunit = var.prop, '{:~P}'.format(var.units)
-            else:  # several variables to be plotted in current subplot
+            else:
                 for var2 in var:
                     ax[i].plot(t, var2[interval], label=var2.label)
 
                 if var2.dimensionality != var[0].dimensionality:
                     warnings.warn(warn_msg_dim)
-
                 if var2.units != var[0].units:
                     warnings.warn(warn_msg_unit)
 
