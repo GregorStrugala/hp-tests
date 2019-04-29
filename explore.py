@@ -50,9 +50,9 @@ class Explorer():
     ureg.define('percent = 1e-2 frac = pct')
     ureg.define('ppm = 1e-6 fraction')
 
-    def __init__(self, filename=None):
+    def __init__(self, filename=None, convert_file=None):
         self.read_file = self.read(filename) # assigns raw_data attribute
-        self._build_name_converter() # assigns _name_converter attribute
+        self._build_name_converter(convert_file) # assigns _name_converter attribute
         self.quantities = {}
         # Define 'adimensional units' for humidity
 
