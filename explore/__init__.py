@@ -19,9 +19,13 @@ from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from xpint import UnitRegistry
-from CoolProp.CoolProp import PropsSI, PhaseSI
 from math import floor, sqrt
+
+from CoolProp.CoolProp import PropsSI, PhaseSI
+from CoolProp.HumidAirProp import HAPropsSI as psychro
+#from cerberus import Validator
+
+from xpint import UnitRegistry
 
 
 class Explorer():
