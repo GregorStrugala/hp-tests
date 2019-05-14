@@ -20,7 +20,7 @@ Its [methods](#methods-of-the-explorer-class) allow to plot various
 quantities or retrieve them as `Quantity` objects.
 This last feature can be useful if some non-implemented calculations
 need to be done.
-Note that extracted quantities (or newly computed) quantities can still
+Note that extracted (or newly computed) quantities can still
 be plotted, using the top-level function `explore.plot`.
 
 Each function from the `Explorer` class is briefly described at the end,
@@ -39,8 +39,8 @@ help(xpint.UnitRegistry().Quantity)
 ```
 
 ### Methods of the `Explorer` class
-| Function names  | Description |
-| --------------- | ----------- |
-| `read`          | Read the data from the file into a DataFrame. |
-| `get`           | Extract specific variables from a DataFrame into `Quantity` objects. |
-| `plot`          | (Sub)plot one or several quantities. |
+| Method names  | Description |
+| ------------- | ----------- |
+| `read`	| Read the data from the file into a DataFrame. |
+| `get`         | Extract specific variables from a DataFrame into `Quantity` objects. |
+| `plot`        | (Sub)plot one or several quantities. |
