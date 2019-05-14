@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from xpint import UnitRegistry
 from CoolProp.CoolProp import PropsSI, PhaseSI
+from math import floor, sqrt
 
 
 class Explorer():
@@ -50,13 +51,13 @@ class Explorer():
     ureg.define('percent = 1e-2 frac = pct')
     ureg.define('ppm = 1e-6 fraction')
 
-    def __init__(self, filename=None, convert_file=None):
+    def __init__(self, filename=None, convert_file='name_conversions.txt'):
         self.read_file = self.read(filename) # assigns raw_data attribute
         self._build_name_converter(convert_file) # assigns _name_converter attribute
         self.quantities = {}
         # Define 'adimensional units' for humidity
 
-    def _build_name_converter(self, filename='name_conversions.txt'):
+    def _build_name_converter(self, filename):
         """
         Create a DataFrame to get the actual columns names
         in the DataTaker file.
@@ -173,7 +174,8 @@ class Explorer():
         #   those depending upon other quantities to be computed,
         #   and those that can be taken 'as is'.
         to_clean = quantities.intersection({'f', 'flowrt_r'})
-        dependant = quantities.intersection({'Qcond', 'Qev', 'Pcomp', 'Pel'})
+        dependant = quantities.intersection(
+            {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev'})
         as_is = quantities - to_clean - dependant
         
         if not update and 'flowrt_r' in to_clean and to_clean:
@@ -203,13 +205,22 @@ class Explorer():
                 )
 
         for quantity in dependant - {'Pel'}:
-            # First get the adequate refrigerant states
-            # according to the quantity to build
-            ref_states = {
-                'Qcond':'pout T4 pout T6',
-                'Qev':'pout T6 pin T1',
-                'Pcomp':'pin T1 pout T2',
-            }[quantity]
+            # First get the adequate refrigerant states according to
+            # the quantity to build and the refrigerant flow direction.
+            ref_dir = self.get('refdir')
+            if len(np.nonzero(ref_dir)[0]) < len(ref_dir) / 2:
+                ref_states = {
+                    'Qcond': 'pout T4 pout T6',
+                    'Qev': 'pout T6 pin T9',
+                    'Pcomp': 'pin T1 pout T2'
+                }[quantity]
+            else:
+                ref_states = {
+                    'Qcond': 'pout T9 pout T7',
+                    'Qev': 'pout T7 pin T4',
+                    'Pcomp': 'pin T1 pout T2',
+                    'Qloss_ev': 'pin T4 pin T1'
+                }[quantity]
             heat_params = self.get('flowrt_r ' + ref_states)
             pow_kW = self._heat(quantity, *heat_params).to('kW')
             self.quantities[quantity] = pow_kW
@@ -311,8 +322,8 @@ class Explorer():
             appender = lambda arg: arg[0] if len(arg) == 1 else arg
         elif any(delim in quantities for delim in ('(', '[', '{')):
             # Split but keep grouped quantities together
-            regex_pattern = re.split(r'[()|\[\]|\{\}]', quantities)
-            iterator = (arg.strip() for arg in regex_pattern if arg.strip())
+            iterator = (arg.strip('()')
+                        for arg in re.findall('\([^\)]*\)|\S+', quantities))
             def appender(arg):
                 if ' ' in arg:
                     return list(self.get(arg))
@@ -365,11 +376,11 @@ class Explorer():
             i.e. the heat transfer rate in watts.
 
         """
-        
+
         # Get the enthalpies using CoolProp, in J/kg
         hin = PropsSI('H', 'P', pin, 'T', Tin, 'R410a')
         hout = PropsSI('H', 'P', pout, 'T', Tout, 'R410a')
-
+        
         # Check the phase, because points in and out may be
         # on the wrong side of the saturation curve
         phase_in = np.array([PhaseSI('P', p, 'T', T, 'R410a')
@@ -378,27 +389,31 @@ class Explorer():
                               for p, T in zip(pout, Tout)])
 
         # Assign the expected phases based on the specified property
-        exp_phase_in, exp_phase_out = {'Qcond':('gas', 'liquid'),
-                                       'Qev':('liquid', 'gas'),
-                                       'Pcomp':('gas', 'gas'),
-                                       'Pel':(None, None)}[power]
+        exp_phase_in, exp_phase_out = {'Qcond': ('gas', 'liq'),
+                                       'Qev': ('liq', 'gas'),
+                                       'Pcomp': ('gas', 'gas'),
+                                       'Qloss_ev': ('gas', 'gas')
+                                      }[power]
         # Get quality based on expected phase
-        quality = {'liquid':0, 'gas':1, None:None}
+        quality = {'liq':0, 'gas':1, None:None}
 
         # Replace by saturated state enthalpy if not in the right phase
-        hin[phase_in != exp_phase_in] = PropsSI(
-            'H', 'P', pin[phase_in != exp_phase_in],
-            'Q', quality[exp_phase_in], 'R410a'
-        )
-        hout[phase_out != exp_phase_out] = PropsSI(
-            'H', 'P', pout[phase_out != exp_phase_out],
-            'Q', quality[exp_phase_out], 'R410a'
-        )
+        if not exp_phase_in in phase_in:
+            hin[phase_in != exp_phase_in] = PropsSI(
+                'H', 'P', pin[phase_in != exp_phase_in],
+                'Q', quality[exp_phase_in], 'R410a'
+            )
+        if not exp_phase_out in phase_out:
+            hout[phase_out != exp_phase_out] = PropsSI(
+                'H', 'P', pout[phase_out != exp_phase_out],
+                'Q', quality[exp_phase_out], 'R410a'
+            )
         
         # Get the right attributes depending on the input property
-        label={'Qcond':'$\dot{Q}_{cond}$',
-               'Qev':'$\dot{Q}_{ev}$',
-               'Pcomp':'$P_{comp}$',
+        label={'Qcond': '$\dot{Q}_{cond}$',
+               'Qev': '$\dot{Q}_{ev}$',
+               'Pcomp': '$P_{comp}$',
+               'Qloss_ev': '$\dot{Q}_{loss,ev}$'
                }[power]
         prop = 'mechanical power' if power == 'Pcomp' else 'heat transfer rate'
         
@@ -407,7 +422,7 @@ class Explorer():
                        label=label, units='W', prop=prop
                  )
     
-
+    
 def plot(*args, time='min', step=60, interval=slice(0, None),
          sharex='col', legend=True, lf=True, loc='best'):
     """
