@@ -172,15 +172,27 @@ class Explorer():
         nconv = self._name_converter
         stored_quantities = self.quantities.keys() if not update else {}
         quantities = set(quantities) - set(stored_quantities)
-        # quantities are divided into 3 categories:
+        # quantities are divided into 4 categories:
+        #   humidity ratios,
         #   those whose magnitude require a bit of cleaning,
         #   those depending upon other quantities to be computed,
         #   and those that can be taken 'as is'.
+        hum_ratios = quantities.intersection({'ws', 'wr'})
         to_clean = quantities.intersection({'f', 'flowrt_r'})
         dependant = quantities.intersection(
             {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev'})
-        as_is = quantities - to_clean - dependant
+        as_is = quantities - hum_ratios - to_clean - dependant
         
+        for w in hum_ratios:
+            T = self.get('T' + w.strip('w')).to('K').magnitude
+            RH = self.get('RH' + w.strip('w')).to('ratio').magnitude
+            self.quantities[w] = self.Q_(
+                psychro('W', 'P', 101325, 'T', T, 'RH', RH),
+                label='$\omega_{' + w.strip('w') + '}$',
+                prop='absolute humidity',
+                units='ratio'
+            ).to('g/kg')
+
         if not update and 'flowrt_r' in to_clean and to_clean:
             # Since update is False, flowrt_r is not in self.quantities
             self._build_quantities('flowrt_r', update=True)
@@ -255,9 +267,9 @@ class Explorer():
         ----------
         quantities : str with a combination of the following items,
                      separated by spaces
-                     {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts Tr Tin Tout Tamb Tdtk
-                      f RHout Tout_db pin pout flowrt_r refdir Pa Pb
-                      Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
+                     {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts RHs ws Tr RHr wr Tin
+                     Tout Tamb Tdtk f RHout Tout_db refdir flowrt_r pin
+                      pout Pa Pb Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
 
         Returns
         -------
