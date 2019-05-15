@@ -189,7 +189,7 @@ class Explorer():
                 label='$\omega_{' + w.strip('w') + '}$',
                 prop='absolute humidity',
                 units='ratio'
-            )
+            ).to('g/kg')
 
         if not update and 'flowrt_r' in to_clean and to_clean:
             # Since update is False, flowrt_r is not in self.quantities
