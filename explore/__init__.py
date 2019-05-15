@@ -55,9 +55,12 @@ class Explorer():
     ureg.define('percent = 1e-2 frac = pct')
     ureg.define('ppm = 1e-6 fraction')
 
-    def __init__(self, filename=None, convert_file='name_conversions.txt'):
-        self.read_file = self.read(filename) # assigns raw_data attribute
-        self._build_name_converter(convert_file) # assigns _name_converter attribute
+    def __init__(self, filename=None, initialdir='heating-data',
+                 convert_file='name_conversions.txt'):
+        # assign read_file and raw_data attribute
+        self.read_file = self.read(filename, initialdir=initialdir)
+        # assign _name_converter attribute
+        self._build_name_converter(convert_file) 
         self.quantities = {}
 
     def _build_name_converter(self, filename):
@@ -87,7 +90,7 @@ class Explorer():
         nconv[nconv=='-'] = None
         self._name_converter = nconv
 
-    def read(self, filename=None, initialdir='./heating-data'):
+    def read(self, filename=None, initialdir='heating-data'):
         """
         Read a DataTaker file and assign it to the raw_data attribute.
 
