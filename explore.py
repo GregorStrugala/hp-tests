@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from xpint import UnitRegistry
 from CoolProp.CoolProp import PropsSI, PhaseSI
+from CoolProp.HumidAirProp import HAPropsSI as psychro
 from math import floor, sqrt
 
 
