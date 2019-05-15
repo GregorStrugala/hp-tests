@@ -23,10 +23,10 @@ from math import floor, sqrt
 
 from CoolProp.CoolProp import PropsSI, PhaseSI
 from CoolProp.HumidAirProp import HAPropsSI as psychro
-#from cerberus import Validator
+from cerberus import Validator
 
 from xpint import UnitRegistry
-
+from .sauroneye import humidity
 
 class Explorer():
     """
@@ -59,7 +59,6 @@ class Explorer():
         self.read_file = self.read(filename) # assigns raw_data attribute
         self._build_name_converter(convert_file) # assigns _name_converter attribute
         self.quantities = {}
-        # Define 'adimensional units' for humidity
 
     def _build_name_converter(self, filename):
         """
