@@ -1,4 +1,4 @@
-
+import numpy as np
 from CoolProp.HumidAirProp import HAPropsSI as psychro
 
 def humidity(field, exp, error):
@@ -19,3 +19,9 @@ def humidity(field, exp, error):
                'the return humidity ratio at least once.')
         error(field, msg)
 
+def cycling(field, exp, error):
+    varf = np.var(exp.get('f'))
+    if varf < exp.Q_('100 Hz**2'):
+        error(field, 'There appears to be short cycling.')
+    elif varf < exp.Q_('500 Hz**2'):
+        error(field, 'There appears to be cycling with long steps.')
