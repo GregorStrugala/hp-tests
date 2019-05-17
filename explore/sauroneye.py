@@ -1,27 +1,16 @@
 import numpy as np
-from CoolProp.HumidAirProp import HAPropsSI as psychro
 
 def humidity(field, exp, error):
-    nconv = exp._name_converter
-    def get_SI_mag(quantity, unit):
-        raw_val = exp.raw_data[nconv.loc[quantity, 'col_names']].values
-        return exp.Q_(raw_val, nconv.loc[quantity, 'units']).to(unit).magnitude
-    Ts = get_SI_mag('Ts', 'K')
-    RHs = get_SI_mag('RHs', 'ratio') 
-    Tr = get_SI_mag('Tr', 'K')
-    RHr = get_SI_mag('RHr', 'ratio')
-
-    ws = psychro('W', 'P', 101325, 'T', Ts, 'RH', RHs)
-    wr = psychro('W', 'P', 101325, 'T', Tr, 'RH', RHr)
-
-    if (wr < ws).any():
+    wr, ws = exp.get('wr ws')
+    overhum = (wr < ws).sum() / len(wr)
+    if overhum:
         msg = ('The supply humidity ratio exceeds '
-               'the return humidity ratio at least once.')
-        error(field, msg)
+               'the return humidity ratio {:.1%} of the time.')
+        error(field, msg.format(overhum))
 
 def cycling(field, exp, error):
     varf = np.var(exp.get('f'))
-    if varf < exp.Q_('100 Hz**2'):
+    if varf > exp.Q_('400 Hz**2'):
         error(field, 'There appears to be short cycling.')
-    elif varf < exp.Q_('500 Hz**2'):
+    elif varf > exp.Q_('100 Hz**2'):
         error(field, 'There appears to be cycling with long steps.')
