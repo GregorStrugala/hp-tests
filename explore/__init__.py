@@ -446,10 +446,11 @@ class Explorer():
                   'humidity ratio': {'check_with': sauroneye.humidity}}
         v = Validator(schema)
         if v.validate({check: self for check in schema}):
-            print('The data is good')
+            print('No warnings')
         else:
+            print('There are {} warnings:'.format(len(v.errors)))
             for i, warning in enumerate(v.errors.values()):
-                print(i+1, warning[0])
+                print(' ', i+1, warning[0])
 
         if show_data:
             checkargs = {'cycling':'f', 'humidity ratio':'(wr ws)'}
@@ -596,12 +597,12 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
             # If var is not a list, there is only one variable
             # to be plotted in the current subplot.
             if not isinstance(var, list):
-                ax[i].plot(t, var[interval])
+                ax[i].plot(t, var[interval].magnitude)
                 ax[i].set(ylabel=y_label(var, 'label'))
                 sbdim, sbunit = var.prop, '{:~P}'.format(var.units)
             else:
                 for var2 in var:
-                    ax[i].plot(t, var2[interval], label=var2.label)
+                    ax[i].plot(t, var2[interval].magnitude, label=var2.label)
 
                 if var2.dimensionality != var[0].dimensionality:
                     warnings.warn(warn_msg_dim)
