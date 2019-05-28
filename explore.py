@@ -7,7 +7,7 @@ that can be returned by an Explorer object.
 """
 
 import platform
-from os.path import split, splitext, basename
+from os.path import splitext, basename
 from itertools import groupby
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename, askopenfilenames
