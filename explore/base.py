@@ -128,10 +128,20 @@ class Explorer():
         else:
             raise ValueError('invalid file extension')
 
+        # Check the file encoding:
+        with open(filename) as f:
+            try:
+                next(f)
+            except UnicodeDecodeError:
+                encoding = 'ISO-8859-1'
+            else:
+                encoding = 'UTF8'
+
         # Define the reader function according to the file type
         call = 'read_' + filetype
-        # Read the first line of the file
-        raw_data = getattr(pd, call)(filename, nrows=0)
+        # Read the first line
+        raw_data = getattr(pd, call)(filename, nrows=0, encoding=encoding)
+
         # Fetch the data
         if any( word in list(raw_data)[0] for word in
                ['load', 'aux', 'setpoint', '|', 'PdT'] ):
@@ -140,10 +150,10 @@ class Explorer():
             print('Test conditions :', list(raw_data)[0])
 
             # Skip the first row containing the conditions
-            self.raw_data = getattr(pd, call)(filename, skiprows=1)
-
+            self.raw_data = getattr(pd, call)(filename, skiprows=1,
+                                              encoding=encoding)
         else:
-            self.raw_data = getattr(pd, call)(filename)
+            self.raw_data = getattr(pd, call)(filename, encoding=encoding)
 
         return basename(filename)
 
