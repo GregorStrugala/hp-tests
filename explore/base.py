@@ -117,7 +117,7 @@ class Explorer():
                                        filetypes=filetypes)
         # Return if the Cancel button is pressed
         if filename in ((), ''):
-            return None if not get_time else None, None
+            return None
 
         # Get the file type from the extension
         _, ext = splitext(filename)
