@@ -17,12 +17,15 @@ import numpy as np
 import pandas as pd
 from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from xpint import UnitRegistry
-from CoolProp.CoolProp import PropsSI, PhaseSI
 from math import floor, sqrt
 
+from CoolProp.CoolProp import PropsSI, PhaseSI
+from CoolProp.HumidAirProp import HAPropsSI as psychro
+from cerberus import Validator
+
+from ._plot import plot
+from xpint import UnitRegistry
+from explore import sauroneye
 
 class Explorer():
     """
@@ -51,11 +54,13 @@ class Explorer():
     ureg.define('percent = 1e-2 frac = pct')
     ureg.define('ppm = 1e-6 fraction')
 
-    def __init__(self, filename=None, convert_file='name_conversions.txt'):
-        self.read_file = self.read(filename) # assigns raw_data attribute
-        self._build_name_converter(convert_file) # assigns _name_converter attribute
+    def __init__(self, filename=None, initialdir='heating-data',
+                 convert_file='name_conversions.txt'):
+        # assign read_file and raw_data attribute
+        self.read_file = self.read(filename, initialdir=initialdir)
+        # assign _name_converter attribute
+        self._build_name_converter(convert_file) 
         self.quantities = {}
-        # Define 'adimensional units' for humidity
 
     def _build_name_converter(self, filename):
         """
@@ -84,7 +89,7 @@ class Explorer():
         nconv[nconv=='-'] = None
         self._name_converter = nconv
 
-    def read(self, filename=None, initialdir='./heating-data'):
+    def read(self, filename=None, initialdir='heating-data'):
         """
         Read a DataTaker file and assign it to the raw_data attribute.
 
@@ -169,15 +174,27 @@ class Explorer():
         nconv = self._name_converter
         stored_quantities = self.quantities.keys() if not update else {}
         quantities = set(quantities) - set(stored_quantities)
-        # quantities are divided into 3 categories:
+        # quantities are divided into 4 categories:
+        #   humidity ratios,
         #   those whose magnitude require a bit of cleaning,
         #   those depending upon other quantities to be computed,
         #   and those that can be taken 'as is'.
+        hum_ratios = quantities.intersection({'ws', 'wr'})
         to_clean = quantities.intersection({'f', 'flowrt_r'})
         dependant = quantities.intersection(
             {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev'})
-        as_is = quantities - to_clean - dependant
+        as_is = quantities - hum_ratios - to_clean - dependant
         
+        for w in hum_ratios:
+            T = self.get('T' + w.strip('w')).to('K').magnitude
+            RH = self.get('RH' + w.strip('w')).to('ratio').magnitude
+            self.quantities[w] = self.Q_(
+                psychro('W', 'P', 101325, 'T', T, 'RH', RH),
+                label='$\omega_{' + w.strip('w') + '}$',
+                prop='absolute humidity',
+                units='ratio'
+            ).to('g/kg')
+
         if not update and 'flowrt_r' in to_clean and to_clean:
             # Since update is False, flowrt_r is not in self.quantities
             self._build_quantities('flowrt_r', update=True)
@@ -252,9 +269,9 @@ class Explorer():
         ----------
         quantities : str with a combination of the following items,
                      separated by spaces
-                     {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts Tr Tin Tout Tamb Tdtk
-                      f RHout Tout_db pin pout flowrt_r refdir Pa Pb
-                      Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
+                     {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts RHs ws Tr RHr wr Tin
+                     Tout Tamb Tdtk f RHout Tout_db refdir flowrt_r pin
+                      pout Pa Pb Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
 
         Returns
         -------
@@ -278,7 +295,6 @@ class Explorer():
             return (self.quantities[quantity] for quantity in quantities)
         else:
             return self.quantities[quantities[0]]
-
     def plot(self, quantities='all', timestamp=False, **kwargs):
         """
         Plot Explorer's quantities against time.
@@ -343,7 +359,7 @@ class Explorer():
             kwargs['time'] = t
         
         plot(*args, **kwargs)
-    
+
     @ureg.wraps(None, (None, None, ureg.kilogram/ureg.second,
                        ureg.pascal, ureg.kelvin, ureg.pascal, ureg.kelvin)) 
     def _heat(self, power, flow=None,
@@ -421,169 +437,20 @@ class Explorer():
         return self.Q_(flow * (hout - hin) * (-1 if power == 'Qcond' else 1),
                        label=label, units='W', prop=prop
                  )
-    
-    
-def plot(*args, time='min', step=60, interval=slice(0, None),
-         sharex='col', legend=True, lf=True, loc='best'):
-    """
-    Plot variables specified as arguments against time.
 
-    Parameters
-    ----------
-    *args : xpint Quantity, or list of xpint Quantity
-        The quantities to be plotted. Quantities grouped in a list are
-        plotted in the same axis.
-    time : {'s', 'min', 'h', 'day'} or ndarray, default 'min'
-        Controls what is displayed on the x-axis. If 's', 'min', 'h' or
-        'day' is given, a minute timestep is assumed by default and the
-        x-axis is created to fit the length of variables in `*args` (see
-        `step` parameter to set another timestep).
-        Alternatively, an explicit array can be given
-        (including datetime arrays).
-    step : int or float
-        The timestep between each measurement in seconds.
-    interval : slice, default slice(0, None)
-        A slice object containing the range over which the quantities
-        are plotted.
-    sharex : bool or {'none', 'all', 'row', 'col'}, default 'col'
-        Controls sharing of properties among x axis (see parameter
-        `sharex` in `matplotlib.pyplot.subplots` function)
-    legend : bool, default True
-        When set to False, no legend is displayed.
-    lf : bool, default True
-        When set to False, a legend frame is displayed.
-    loc : int or string or pair of floats, default 'best'
-        See `loc` parameter in `matplotlib.pyplot.legend`.
-
-    Examples
-    --------
-    Plot only one variable (say Tr):
-
-    >>> plot(Tr)
-
-    Plot several variables (say Tr, Ts, f) without legend frame:
-
-    >>> plot(Tr, Ts, f, lf=False)
-
-    Group some variables (say Tr, Ts) in the same axis:
-
-    >>> plot([Tr, Ts], f)
-
-    """
-
-    res = {'s':1/step, 'min':60/step, 'h':3600/step, 'days':86400/step}
-    properties = {
-        'temperature':'$T$', 'electrical power':'$P$',
-        'mechanical power':'$\dot{W}$','heat transfer rate':'$\dot{Q}$',
-        'difference of internal energy rate of change':'$\Delta\dot U$',
-        'flow rate':'$\dot{m}$', 'frequency':'$f$', 'pressure':'$p$',
-        'specific enthalpy':'$h$', 'relative humidity':'$\phi$',
-        'absolute humidity':'$\omega$', 'state':'$\gamma$',
-        'relative error':'$\delta$'
-    }
-
-    # Store this boolean as it is used numerous times.
-    t_str = isinstance(time, str)
-
-    a0_list = isinstance(args[0], list)
-    length = len(args[0][0][interval] if a0_list else args[0][interval])
-    t = np.arange(0, length) / res[time] if t_str else time[interval]
-
-    warn_msg_dim = ('Quantities with different dimensionalities '
-                    'are displayed on the same plot')
-    warn_msg_unit = ('Quantities with different units '
-                     'are displayed on the same plot')
-
-    # Create the statusbar string to be formatted.
-    statusbar = {True:'time: {:.2f} {}     {}: {:.2f} {}',
-                 False:'time: {}     {}: {:.2f} {}'}[t_str]
-
-    # Create the figure and axis.
-    fig, ax = plt.subplots(len(args), sharex=sharex, facecolor=(.93,.93,.93))
-
-    def y_label(q, attr):
-        """Create a y label for the quantity q."""
-        # Ensure that there is a non-empty label
-        # or a property listed in the properties dictionary
-        if (attr == 'label' and q.label is None or
-            attr == 'prop' and q.prop not in properties):
-            return None
-
-        pre = {'label':q.label, 'prop':properties[q.prop]}.get(attr, '')
-
-        # Cannot use Quantity().dimensionless in case of percentages
-        if str(q.units) != 'dimensionless':
-            post = ' ({:~P})'.format(q.units)
+    def validate(self, show_data=False):
+        schema = {check: {'check_with': getattr(sauroneye, check)}
+                  for check in dir(sauroneye) if check.endswith('check')}
+        v = Validator(schema)
+        if v.validate({check: self for check in schema}):
+            print('No warnings')
         else:
-            post = ''
+            print('There are {} warnings:'.format(len(v.errors)))
+            for i, warning in enumerate(v.errors.values()):
+                print(' ', i+1, warning[0])
 
-        return pre + post if pre + post != '' else None
+        if show_data:
+            checkargs = sauroneye._checkargs 
+            args = ' '.join(checkargs[check] for check in v.errors)
+            self.plot(args)
 
-
-    def fmtr(x, y, sbdim, sbunit, ax):
-        """Make a formatter for the axis statusbar"""
-        if t_str:
-            return statusbar.format(x, time, sbdim, y, sbunit)
-        else:
-            def datefmt(ax):
-                t_min, t_max = (int(t) for t in ax.get_xlim())
-                fmt = '%d %H:%M:%S' if t_max-t_min > 0 else '%H:%M:%S'
-                return mdates.DateFormatter(fmt)
-            return statusbar.format(datefmt(ax)(x), sbdim, y, sbunit)
-
-    if len(args) == 1:  # There is only one axis (that may have several plots).
-
-        if not isinstance(args[0], list):  # There is only one plot.
-            ax.plot(t, args[0][interval])
-            ax.set(ylabel=y_label(args[0], 'label'))
-            # Label (or property) and units used in status bar
-            sbdim, sbunit = args[0].prop, '{:~P}'.format(args[0].units)
-
-        else:  # There are several plots.
-            for var in args[0]:
-                ax.plot(t, var[interval], label=var.label)
-                
-                if var.dimensionality != args[0][0].dimensionality:
-                    warnings.warn(warn_msg_dim)
-                if var.units != args[0][0].units:
-                    warnings.warn(warn_msg_unit)
-
-            # The y-label is by default that of the last element.
-            ax.set(ylabel=y_label(args[0][-1], 'prop'))
-
-            sbdim, sbunit = args[0][-1].prop, '{:~P}'.format(args[0][-1].units)
-            if legend:
-                ax.legend(loc=loc, frameon=lf)
-
-        ax.format_coord = lambda x, y: fmtr(x, y, sbdim, sbunit, ax)
-
-    else:  # There are several subplots.
-        for i, var in enumerate(args):
-            # If var is not a list, there is only one variable
-            # to be plotted in the current subplot.
-            if not isinstance(var, list):
-                ax[i].plot(t, var[interval])
-                ax[i].set(ylabel=y_label(var, 'label'))
-                sbdim, sbunit = var.prop, '{:~P}'.format(var.units)
-            else:
-                for var2 in var:
-                    ax[i].plot(t, var2[interval], label=var2.label)
-
-                if var2.dimensionality != var[0].dimensionality:
-                    warnings.warn(warn_msg_dim)
-                if var2.units != var[0].units:
-                    warnings.warn(warn_msg_unit)
-
-                ax[i].set(ylabel=y_label(var[-1], 'prop'))
-                sbdim, sbunit = var[-1].prop, '{:~P}'.format(var[-1].units)
-                if legend:
-                    ax[i].legend(loc=loc, frameon=lf)
-
-            # kwargs necessary so that each subplot
-            # gets its own statusbar formatter
-            def fmtri(x, y, sbdim=sbdim, sbunit=sbunit):
-                return fmtr(x, y, sbdim, sbunit, ax[i])
-
-            ax[i].format_coord = fmtri
-
-    plt.xlabel('$t$ (' + (time if t_str else 'timestamp') + ')');
