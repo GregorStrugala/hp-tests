@@ -8,8 +8,7 @@ from os.path import split
 
 from explore import Explorer
 
-def plot_files(var, initialdir='./heating-data', paths=None,
-               filetype=None, return_data=False):
+def plot_files(var, initialdir='./heating-data', paths=None, filetype=None):
     """
     Plot a single variable from several DataTaker files.
 
@@ -48,15 +47,12 @@ def plot_files(var, initialdir='./heating-data', paths=None,
     
     # If no paths are specified, ask with dialog box
     if paths is None:
-
         # Display default files based on the specified filetype
         if filetype is None:
             filetypes = (('All files', '.*'), ('CSV', '.csv'),
                          ('Excel', '.xlsx'))
-
         elif filetype.lower() in ('csv', '.csv'):
             filetypes = (('CSV', '.csv'), ('All files', '.*'))
-
         elif filetype.lower() in ('excel', 'xlsx', '.xlsx'):
             filetypes = (('Excel', '.xlsx'), ('All files', '.*'))
 
@@ -64,51 +60,21 @@ def plot_files(var, initialdir='./heating-data', paths=None,
         Tk().withdraw()  # remove tk window
         paths = askopenfilenames(initialdir=initialdir,
                                      title=title, filetypes=filetypes)
-
         if paths in ((), ''):  # Cancel button has been pressed
             return
 
     elif paths == 'all':  # take every file in initialdir
         paths = listdir(initialdir)
-
         # Use full path
         paths = [initialdir + '/' + filename for filename in paths]
 
     dfs=[]  # list to put the dataframes of each file
-
-    def read_file(file, **kwargs):
-
-        # Append if filetype is None or excel,
-        # and the current file is an excel file
-        if (str(filetype).lower() in ('none', 'excel', 'xlsx', '.xlsx') and
-            file.lower().endswith('.xlsx')):
-            
-            if any(word in list(pd.read_excel(file))[0] for word in
-                   ['load', 'aux', 'setpoint', '|', 'PdT']):
-                # Skip the first row containing the conditions
-                return pd.read_excel(file, skiprows=1, **kwargs)
-            else:
-                return pd.read_excel(file, **kwargs)
-
-        # Append if filetype is None or csv,
-        # and the current file is a csv file
-        elif (str(filetype).lower() in ('none', 'csv', '.csv') and
-              file.lower().endswith('.csv')):
-            if any(word in list(pd.read_csv(file))[0] for word in
-                   'load aux setpoint | PdT'.split()):
-                return pd.read_csv(file, skiprows=1, **kwargs)
-            else:
-                return pd.read_csv(file, **kwargs)
-
-
     for path in paths:
         exp = Explorer(filename=path)
         quantity = exp.get(var)
         _, filename = split(path)  # get filename without the path
         dfs.append(pd.DataFrame(quantity.magnitude,
                                 columns=[var]).rename(columns={var:filename}))
-
-
     df = pd.concat(dfs, axis=1)  # merge all dataframes into one
 
     # Create the subplots layout
@@ -122,10 +88,5 @@ def plot_files(var, initialdir='./heating-data', paths=None,
     for ax, df in zip(axs.reshape(-1), dfs):
         ax.title.set_size(8)
         ax.set_xlim([0, df.last_valid_index()])
-
     # Display a title in the figure
     plt.suptitle(var)
-
-    if return_data:
-        return df
-
