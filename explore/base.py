@@ -445,9 +445,14 @@ class Explorer():
         if v.validate({check: self for check in schema}):
             print('No warnings')
         else:
-            print('There are {} warnings:'.format(len(v.errors)))
-            for i, warning in enumerate(v.errors.values()):
-                print(' ', i+1, warning[0])
+            n_warn = len(v.errors)
+            if n_warn > 1:
+                print('There are {} warnings:'.format(n_warn))
+                for i, warning in enumerate(v.errors.values()):
+                    print(' ', i+1, warning[0])
+            else:
+                warn = list(v.errors.values())[0][0]
+                print('Warning:', warn[0].lower() + warn[1:] if warn else warn)
 
         if show_data:
             checkargs = sauroneye._checkargs 
