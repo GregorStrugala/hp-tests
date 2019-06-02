@@ -305,6 +305,7 @@ class Explorer():
             return (self.quantities[quantity] for quantity in quantities)
         else:
             return self.quantities[quantities[0]]
+
     def plot(self, quantities='all', timestamp=False, **kwargs):
         """
         Plot Explorer's quantities against time.
@@ -327,7 +328,9 @@ class Explorer():
         >>> e.plot('(T1 T2) f')
 
         """
-
+        
+        # Store in a list the arguments to pass
+        # to the datataker.plot method 
         args = [] # parameters to pass to plot function
         quantities = 'allmerge' if quantities == 'all' else quantities
         

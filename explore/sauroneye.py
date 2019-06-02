@@ -1,6 +1,8 @@
 import numpy as np
 
-_checkargs = {}  # Store quantities used to check the data.
+# Store quantities used to check the data,
+# for plotting in DataTaker.validate method.
+_checkargs = {} 
 
 def humidity_check(field, exp, error):
     _checkargs['humidity_check'] = '(wr ws)'
