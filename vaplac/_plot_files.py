@@ -1,3 +1,10 @@
+"""
+This module implements the plot_files function,
+to plot a single quantity from several data files.
+
+"""
+
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -10,7 +17,7 @@ from .base import DataTaker
 
 def plot_files(var, initialdir='./heating-data', paths=None, filetype=None):
     """
-    Plot a single variable from several DataTaker files.
+    Plot a single variable from several data files.
 
     Parameters
     ----------
@@ -32,16 +39,6 @@ def plot_files(var, initialdir='./heating-data', paths=None, filetype=None):
         Extension of files to use for plotting (csv or excel). If not
         specified, files with both extension are used. Useful when
         `paths` is either 'all' or None.
-    return_data : bool, default False
-        If set to True, the function will return a DataFrame with the
-        plotted data.
-
-    Returns
-    -------
-    df : DataFrame or None
-        A pandas DataFrame object with the values of the speicified
-        variable (one colmun for each file). None is returned if
-        `return_data` is False.
 
     """
 

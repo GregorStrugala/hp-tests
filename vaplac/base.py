@@ -31,9 +31,17 @@ class DataTaker():
 
     A DataTaker object holds information about data contained in a file
     from a data logger (CSV or excel). The filename must be passed to
-    the constructor. Moreover, a DataTaker has several methods to plot
-    and/or return the data. The latter can be useful to perform
+    the constructor. Moreover, a DataTaker has methods to validate
+    or return the data. The latter can be useful to perform
     calculations that are not implemented in the DataTaker class.
+
+    Because column names in data files may be quite long, it becomes
+    tedious if the user has to type them numerous times.
+    A DataTaker object thus links those names to alternate, shorter ones
+    based on an external file that can be specified (default is
+    `name_conversions_UTF8.txt` on unix-based systems, and
+    `name_conversions_ANSI.txt` on windows sysems). This file also
+    gives the units and property for each measured quantity.
 
     Parameters
     ----------
@@ -165,9 +173,9 @@ class DataTaker():
 
         Example
         -------
-        >>> e = dtk.DataTaker()
+        >>> dtk = vpa.DataTaker()
         >>> quantities = ('T1', 'T2', 'T3')
-        >>> T1, T2, T3 = e._build_quantities(*quantities, update=False)
+        >>> T1, T2, T3 = dtk._build_quantities(*quantities, update=False)
 
         """
 
@@ -279,11 +287,11 @@ class DataTaker():
 
         Examples
         --------
-        >>> e = dtk.Eplorer()
-        >>> T4, pout = e.get('T4', 'pout')
+        >>> dtk = vpa.DataTaker()
+        >>> T4, pout = dtk.get('T4 pout')
 
-        >>> properties = ('T1 T2 T3 T4 T5 T6 T7')
-        >>> T1, T2, T3, T4, T5, T6, T7 = e.get(properties)
+        >>> properties = 'T1 T2 T3 T4 T5 T6 T7'
+        >>> T1, T2, T3, T4, T5, T6, T7 = dtk.get(properties)
 
         """
 
@@ -310,12 +318,12 @@ class DataTaker():
             All the quantities to be plotted, separated by a space.
             Quantites to be plotted together must be grouped inside (),
             [] or {}.
-        **kwargs : see function datataker.plot.
+        **kwargs : see function vaplac.plot.
 
         Example
         -------
-        >>> e = dtk.DataTaker()
-        >>> e.plot('(T1 T2) f')
+        >>> dtk = vpa.DataTaker()
+        >>> dtk.plot('(T1 T2) f')
 
         """
 
@@ -442,6 +450,24 @@ class DataTaker():
                  )
 
     def validate(self, show_data=False):
+        """
+        Perform data checks implemented in vaplac.sauroneye.
+
+        If no abnormalities are detected, the message 'No warnings' is
+        displayed. Otherwise, the corresponding warnings will be given.
+
+        Parameters
+        ----------
+        show_data : boolean, default False
+            If set to True, the quantities involved in the checks resulting
+            in a warning are plotted.
+
+        Example
+        -------
+        >>> dtk = vpa.DataTaker()
+        >>> dtk.validate(show_data=True)
+
+        """
         schema = {check: {'check_with': getattr(sauroneye, check)}
                   for check in dir(sauroneye) if check.endswith('check')}
         v = Validator(schema)

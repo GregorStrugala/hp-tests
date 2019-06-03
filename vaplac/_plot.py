@@ -1,3 +1,9 @@
+"""
+This module implements the plot function,
+to easily produce formatted subplots from Quantity objects.
+
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
