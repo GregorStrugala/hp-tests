@@ -113,15 +113,15 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
     if len(args) == 1:  # There is only one axis (that may have several plots).
 
         if not isinstance(args[0], list):  # There is only one plot.
-            ax.plot(t, args[0][interval])
+            ax.plot(t, args[0][interval].magnitude)
             ax.set(ylabel=y_label(args[0], 'label'))
             # Label (or property) and units used in status bar
             sbdim, sbunit = args[0].prop, '{:~P}'.format(args[0].units)
 
         else:  # There are several plots.
             for var in args[0]:
-                ax.plot(t, var[interval], label=var.label)
-                
+                ax.plot(t, var[interval].magnitude, label=var.label)
+
                 if var.dimensionality != args[0][0].dimensionality:
                     warnings.warn(warn_msg_dim)
                 if var.units != args[0][0].units:
