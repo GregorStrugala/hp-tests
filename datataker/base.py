@@ -53,10 +53,12 @@ class DataTaker():
     ureg.define('ppm = 1e-6 fraction')
 
     def __init__(self, filename=None, initialdir='heating-data',
-                 convert_file='name_conversions.txt'):
+                 convert_file='name_conversions_UTF8.txt'):
         # assign read_file and raw_data attribute
         self.read_file = self.read(filename, initialdir=initialdir)
         # assign _name_converter attribute
+        if platform.system() == 'Windows':
+            convert_file = 'name_conversions_ANSI.txt'
         self._build_name_converter(convert_file)
         self.quantities = {}
 
@@ -67,23 +69,14 @@ class DataTaker():
 
         Parameters
         ----------
-        filename : str, default 'name_conversions.txt'
+        filename : str, default 'name_conversions_UTF8.txt'
             The name of the DataTaker file.
 
         """
 
         # Read the label conversion table differently according to the OS
-        if platform.system() == 'Linux':
-            nconv = pd.read_fwf(filename, comment='#',
-                                widths=[12, 36, 20, 20, 5], index_col=0)
-        else:
-            nconv = pd.read_csv(filename, delimiter='\t+',
-                                index_col=0, engine='python', comment='#')
-            nconv_cols = nconv.loc[:, 'col_names'].str.replace('Â', '');
-            nconv_units = nconv.loc[:, 'units'].str.replace('Â', '');
-            nconv.loc[:, 'col_names'] = nconv_cols
-            nconv.loc[:, 'units'] = nconv_units
-
+        nconv = pd.read_fwf(filename, comment='#',
+                            widths=[12, 36, 20, 20, 5], index_col=0)
         nconv[nconv=='-'] = None
         self._name_converter = nconv
 
