@@ -23,7 +23,7 @@ from cerberus import Validator
 
 from ._plot import plot
 from xpint import UnitRegistry
-from datataker import sauroneye
+from vaplac import sauroneye
 
 class DataTaker():
     """
