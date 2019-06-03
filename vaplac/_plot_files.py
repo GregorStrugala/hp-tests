@@ -6,7 +6,7 @@ from tkinter.filedialog import askopenfilename, askopenfilenames
 from math import sqrt, floor
 from os.path import split
 
-from .base import Explorer
+from .base import DataTaker
 
 def plot_files(var, initialdir='./heating-data', paths=None, filetype=None):
     """
@@ -44,7 +44,7 @@ def plot_files(var, initialdir='./heating-data', paths=None, filetype=None):
         `return_data` is False.
 
     """
-    
+
     # If no paths are specified, ask with dialog box
     if paths is None:
         # Display default files based on the specified filetype
@@ -70,8 +70,7 @@ def plot_files(var, initialdir='./heating-data', paths=None, filetype=None):
 
     dfs=[]  # list to put the dataframes of each file
     for path in paths:
-        exp = Explorer(filename=path)
-        quantity = exp.get(var)
+        quantity = DataTaker(filename=path).get(var)
         _, filename = split(path)  # get filename without the path
         dfs.append(pd.DataFrame(quantity.magnitude,
                                 columns=[var]).rename(columns={var:filename}))
