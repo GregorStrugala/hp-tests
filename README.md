@@ -61,7 +61,7 @@ function.
 
 ### The ``plot`` function
 The top-level `plot` function works in the same way as the DataTaker.plot
-method, but is dedicated to plotting Quantities object.
+method, but is dedicated to plotting Quantity objects.
 Following the previous example, the condenser capacity and the total
 power can be plotted along with the COP using
 ```python
