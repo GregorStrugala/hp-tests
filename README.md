@@ -38,10 +38,12 @@ can be used as shown by the following example:
   dtk.plot('(Tr Ts) f')
   ```
 3. Extract the condenser heat output, the indoor fan power and the total
-consumed power to compute the COP, then plot the three quantities
+consumed power to compute the COP, then display some statistical
+characteristics.
   ```python
   Qcond, Pfan_in, Ptot = dtk.get('Qcond Pfan_in Ptot')
   COP = (Qcond + Pfan_in) / Ptot
+  COP.info()
   ```
 Note that the variables have the same name than the arguments of the
 `DataTaker.get` method because it improves clarity, but they do not
