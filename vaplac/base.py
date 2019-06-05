@@ -203,7 +203,7 @@ class DataTaker():
                 units='ratio'
             ).to('g/kg')
 
-        if not update and 'flowrt_r' in to_clean and to_clean:
+        if not update and 'flowrt_r' in to_clean:
             # Since update is False, flowrt_r is not in self.quantities
             self._build_quantities('flowrt_r', update=True)
         elif to_clean:
