@@ -71,7 +71,7 @@ class DataTaker():
         self.quantities = {}
 
     def __repr__(self):
-        return 'DataTaker({})'.format(self.read_file)    
+        return 'DataTaker({})'.format(self.read_file)
 
     def _build_name_converter(self, filename):
         """
@@ -130,7 +130,7 @@ class DataTaker():
             raise ValueError('invalid file extension')
 
         # Check the file encoding:
-        with open(filename) as f:
+        with open(filename, encoding='UTF8') as f:
             try:
                 next(f)
             except UnicodeDecodeError:
