@@ -70,6 +70,9 @@ class DataTaker():
         self._build_name_converter(convert_file)
         self.quantities = {}
 
+    def __repr__(self):
+        return 'DataTaker({})'.format(self.read_file)    
+
     def _build_name_converter(self, filename):
         """
         Create a DataFrame to get the actual columns names
