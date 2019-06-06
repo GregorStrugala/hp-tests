@@ -7,6 +7,7 @@ to easily produce formatted subplots from Quantity objects.
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import warnings
 
 def plot(*args, time='min', step=60, interval=slice(0, None),
          sharex='col', legend=True, lf=True, loc='best'):
@@ -78,6 +79,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
                     'are displayed on the same plot')
     warn_msg_unit = ('Quantities with different units '
                      'are displayed on the same plot')
+    warnings.simplefilter('always')
 
     # Create the statusbar string to be formatted.
     statusbar = {True:'time: {:.2f} {}     {}: {:.2f} {}',

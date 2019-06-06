@@ -53,9 +53,13 @@ class _Quantity(pint.quantity._Quantity):
 
     def to(self, other=None, *contexts, **ctx_kwargs):
         """Keep the values of `prop` and `label` after a conversion."""
-        quantity = super().to(other, *contexts, **ctx_kwargs)
-        return self.__class__(quantity.magnitude, units=quantity.units,
-                              prop=self.prop, label=self.label)
+        if other is None:
+            return self.__class__(self.magnitude, units=self.units,
+                                  prop=self.prop, label=self.label)
+        else:
+            quantity = super().to(other, *contexts, **ctx_kwargs)
+            return self.__class__(quantity.magnitude, units=quantity.units,
+                                  prop=self.prop, label=self.label)
 
     def name(self, prop=None, label=None):
         """Shortcut to set `prop` and `label` attributes on one line"""

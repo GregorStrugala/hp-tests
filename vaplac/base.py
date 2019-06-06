@@ -10,7 +10,6 @@ from itertools import groupby
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename, askopenfilenames
 import re
-import warnings
 import numpy as np
 import pandas as pd
 from pandas.plotting import register_matplotlib_converters
@@ -268,7 +267,7 @@ class DataTaker():
                 units=nconv.loc[quantity, 'units']
             )
 
-    def get(self, quantities):
+    def get(self, variables):
         """
         Return specific quantities from a DataTaker as Quantity objects.
 
@@ -298,14 +297,24 @@ class DataTaker():
 
         """
 
-        quantities = quantities.split()
+        spec_units = {}
+        quantities = variables.split()
+        for i, variable in enumerate(variables.split()):
+            if '/' in variable:
+                quantity, unit = variable.split('/')
+                quantities[i] = quantity
+                spec_units[quantity] = unit
         # Only build quantities not already in the DataTaker's quantities
         self._build_quantities(*(set(quantities) - set(self.quantities)))
         # Return a Quantity if there is only one element in quantities
+        def update_units(quantities, quantity):
+            return self.quantities[quantity].to(spec_units.get(quantity))
         if len(quantities) > 1:
-            return (self.quantities[quantity] for quantity in quantities)
+            return (update_units(self.quantities, quantity)
+                    for quantity in quantities)
+            # return (self.quantities[quantity].to(spec_units.get(quantity)) for quantity in quantities)
         else:
-            return self.quantities[quantities[0]]
+            return update_units(self.quantities, quantities[0])
 
     def plot(self, quantities='all', timestamp=False, **kwargs):
         """
@@ -337,6 +346,7 @@ class DataTaker():
 
         # Define an iterator and an appender to add the right quantities
         # to the args list
+        split_units = lambda arg: arg.split('/') if '/' in arg else (arg, None)
         if quantities == 'allsplit':
             iterator = self.quantities.keys()
             appender = lambda arg: self.get(arg)
