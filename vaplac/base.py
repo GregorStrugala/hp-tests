@@ -288,7 +288,7 @@ class DataTaker():
             self.quantities[enthalpy] = self.Q_(h,
                                                 label='$h_{}$'.format(state),
                                                 prop='enthalpy',
-                                                units='J/kg')
+                                                units='J/kg').to('kJ/kg')
 
     def get(self, variables):
         """
