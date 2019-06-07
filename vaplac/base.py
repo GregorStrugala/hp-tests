@@ -301,7 +301,7 @@ class DataTaker():
         quantities = variables.split()
         for i, variable in enumerate(variables.split()):
             if '/' in variable:
-                quantity, unit = variable.split('/')
+                quantity, unit = variable.split('/', 1)
                 quantities[i] = quantity
                 spec_units[quantity] = unit
         # Only build quantities not already in the DataTaker's quantities
