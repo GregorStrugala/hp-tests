@@ -346,7 +346,6 @@ class DataTaker():
 
         # Define an iterator and an appender to add the right quantities
         # to the args list
-        split_units = lambda arg: arg.split('/') if '/' in arg else (arg, None)
         if quantities == 'allsplit':
             iterator = self.quantities.keys()
             appender = lambda arg: self.get(arg)
@@ -362,8 +361,17 @@ class DataTaker():
             appender = lambda arg: arg[0] if len(arg) == 1 else arg
         elif any(delim in quantities for delim in ('(', '[', '{')):
             # Split but keep grouped quantities together
-            iterator = (arg.strip('()')
-                        for arg in re.findall('\([^\)]*\)|\S+', quantities))
+            iterator = [arg.strip('()')
+                        for arg in re.findall(r'\([^\)]*\)|\S+', quantities)]
+            # Distribute any unit specified over a group
+            if ')/' in quantities:
+                for i, arg in enumerate(iterator):
+                    if arg.startswith('/'):
+                        unit = arg[1:]
+                        group = iterator[i-1]
+                        iterator[i-1] = '/{} '.format(unit).join(group.split(' '))
+                        iterator[i-1] += '/{}'.format(unit)
+                        del iterator[i]
             def appender(arg):
                 if ' ' in arg:
                     return list(self.get(arg))
