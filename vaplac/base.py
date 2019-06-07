@@ -16,7 +16,7 @@ from pandas.plotting import register_matplotlib_converters
 register_matplotlib_converters()
 from math import floor, sqrt
 
-from CoolProp.CoolProp import PropsSI, PhaseSI
+from CoolProp.CoolProp import PropsSI as properties, PhaseSI as phase
 from CoolProp.HumidAirProp import HAPropsSI as psychro
 from cerberus import Validator
 
@@ -164,11 +164,10 @@ class DataTaker():
 
         Parameters
         ----------
-        *quantities : {'T1', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8',
-                       'T9','Ts', 'Tr', 'Tin', 'Tout', 'Tamb', 'Tdtk',
-                       'RHout','Tout_db', 'pin', 'pout', 'flowrt_r',
+        *quantities : {'T{1-9}', 'h{1-9}', 'Ts', 'Tr', 'Tin', 'Tout',
+                       'Tamb', 'Tdtk', 'RHout','Tout_db', 'pin', 'pout',
                        'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
-                       'Ptot', Qcond, Qev, Pcomp}
+                       'Ptot', 'Qcond', 'Qev', 'Pcomp', 'flowrt_r'}
         update : boolean, default True
             If set to False, quantities already present will not be
             replaced.
@@ -193,7 +192,14 @@ class DataTaker():
         to_clean = quantities.intersection({'f', 'flowrt_r'})
         dependant = quantities.intersection(
             {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev'})
-        as_is = quantities - hum_ratios - to_clean - dependant
+        enthalpies = quantities.intersection(
+            {'h{}'.format(i+1) for i in range(9)})
+        as_is = quantities - hum_ratios - to_clean - dependant - enthalpies
+
+        if enthalpies or dependant - {'Pel'}:
+            ref_dir = self.get('refdir')
+            # majority of 0 = heating, majority of 1 = cooling
+            heating = np.count_nonzero(ref_dir) < len(ref_dir) / 2
 
         for w in hum_ratios:
             T = self.get('T' + w.strip('w')).to('K').magnitude
@@ -235,7 +241,7 @@ class DataTaker():
             # First get the adequate refrigerant states according to
             # the quantity to build and the refrigerant flow direction.
             ref_dir = self.get('refdir')
-            if len(np.nonzero(ref_dir)[0]) < len(ref_dir) / 2:
+            if heating:
                 ref_states = {
                     'Qcond': 'pout T4 pout T6',
                     'Qev': 'pout T6 pin T9',
@@ -264,8 +270,25 @@ class DataTaker():
             self.quantities[quantity] = self.Q_(magnitude,
                 label=nconv.loc[quantity, 'labels'],
                 prop=nconv.loc[quantity, 'properties'],
-                units=nconv.loc[quantity, 'units']
-            )
+                units=nconv.loc[quantity, 'units'])
+
+        for enthalpy in enthalpies:
+            state = int(enthalpy.strip('h'))
+            if (heating and state in (7, 8, 9, 1) or
+                not heating and state in (6, 5, 4, 3, 1)):
+                pstate = 'in'
+            elif (heating and state in range(2, 7) or
+                  not heating and state in (2, 9, 8, 7)):
+                pstate = 'out'
+            else:
+                raise ValueError('The enthalpy state must be between 1 and 9.')
+            p, T = self.get('p{} T{}'.format(pstate, state))
+            h = properties('H', 'P', p.to('Pa').magnitude,
+                           'T', T.to('K').magnitude, 'R410a')
+            self.quantities[enthalpy] = self.Q_(h,
+                                                label='$h_{}$'.format(state),
+                                                prop='enthalpy',
+                                                units='J/kg')
 
     def get(self, variables):
         """
@@ -426,14 +449,14 @@ class DataTaker():
         """
 
         # Get the enthalpies using CoolProp, in J/kg
-        hin = PropsSI('H', 'P', pin, 'T', Tin, 'R410a')
-        hout = PropsSI('H', 'P', pout, 'T', Tout, 'R410a')
+        hin = properties('H', 'P', pin, 'T', Tin, 'R410a')
+        hout = properties('H', 'P', pout, 'T', Tout, 'R410a')
 
         # Check the phase, because points in and out may be
         # on the wrong side of the saturation curve
-        phase_in = np.array([PhaseSI('P', p, 'T', T, 'R410a')
+        phase_in = np.array([phase('P', p, 'T', T, 'R410a')
                              for p, T in zip(pin, Tin)])
-        phase_out = np.array([PhaseSI('P', p, 'T', T, 'R410a')
+        phase_out = np.array([phase('P', p, 'T', T, 'R410a')
                               for p, T in zip(pout, Tout)])
 
         # Assign the expected phases based on the specified property
@@ -447,12 +470,12 @@ class DataTaker():
 
         # Replace by saturated state enthalpy if not in the right phase
         if not exp_phase_in in phase_in:
-            hin[phase_in != exp_phase_in] = PropsSI(
+            hin[phase_in != exp_phase_in] = properties(
                 'H', 'P', pin[phase_in != exp_phase_in],
                 'Q', quality[exp_phase_in], 'R410a'
             )
         if not exp_phase_out in phase_out:
-            hout[phase_out != exp_phase_out] = PropsSI(
+            hout[phase_out != exp_phase_out] = properties(
                 'H', 'P', pout[phase_out != exp_phase_out],
                 'Q', quality[exp_phase_out], 'R410a'
             )

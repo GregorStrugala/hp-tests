@@ -64,7 +64,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
         'difference of internal energy rate of change':'$\Delta\dot U$',
         'flow rate':'$\dot{m}$', 'frequency':'$f$', 'pressure':'$p$',
         'specific enthalpy':'$h$', 'relative humidity':'$\phi$',
-        'absolute humidity':'$\omega$', 'state':'$\gamma$',
+        'absolute humidity':'$\omega$', 'flow direction':'$\gamma$',
         'relative error':'$\delta$'
     }
 
