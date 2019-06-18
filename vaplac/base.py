@@ -245,15 +245,13 @@ class DataTaker():
                 ref_states = {
                     'Qcond': 'pout T4 pout T6',
                     'Qev': 'pout T6 pin T9',
-                    'Pcomp': 'pin T1 pout T2'
-                }[quantity]
+                    'Pcomp': 'pin T1 pout T2'}[quantity]
             else:
                 ref_states = {
                     'Qcond': 'pout T9 pout T7',
                     'Qev': 'pout T7 pin T4',
                     'Pcomp': 'pin T1 pout T2',
-                    'Qloss_ev': 'pin T4 pin T1'
-                }[quantity]
+                    'Qloss_ev': 'pin T4 pin T1'}[quantity]
             heat_params = self.get('flowrt_r ' + ref_states)
             pow_kW = self._heat(quantity, *heat_params).to('kW')
             self.quantities[quantity] = pow_kW
@@ -463,8 +461,7 @@ class DataTaker():
         exp_phase_in, exp_phase_out = {'Qcond': ('gas', 'liq'),
                                        'Qev': ('liq', 'gas'),
                                        'Pcomp': ('gas', 'gas'),
-                                       'Qloss_ev': ('gas', 'gas')
-                                      }[power]
+                                       'Qloss_ev': ('gas', 'gas')}[power]
         # Get quality based on expected phase
         quality = {'liq':0, 'gas':1, None:None}
 
@@ -484,14 +481,12 @@ class DataTaker():
         label={'Qcond': '$\dot{Q}_{cond}$',
                'Qev': '$\dot{Q}_{ev}$',
                'Pcomp': '$P_{comp}$',
-               'Qloss_ev': '$\dot{Q}_{loss,ev}$'
-               }[power]
+               'Qloss_ev': '$\dot{Q}_{loss,ev}$'}[power]
         prop = 'mechanical power' if power == 'Pcomp' else 'heat transfer rate'
 
         # Return result in watts
         return self.Q_(flow * (hout - hin) * (-1 if power == 'Qcond' else 1),
-                       label=label, units='W', prop=prop
-                 )
+                       label=label, units='W', prop=prop)
 
     def validate(self, show_data=False):
         """

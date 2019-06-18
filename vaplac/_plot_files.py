@@ -56,7 +56,7 @@ def plot_files(var, initialdir='./heating-data', paths=None, filetype=None):
         title = 'Select input files'
         Tk().withdraw()  # remove tk window
         paths = askopenfilenames(initialdir=initialdir,
-                                     title=title, filetypes=filetypes)
+                                 title=title, filetypes=filetypes)
         if paths in ((), ''):  # Cancel button has been pressed
             return
 

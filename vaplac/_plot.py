@@ -65,8 +65,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
         'flow rate':'$\dot{m}$', 'frequency':'$f$', 'pressure':'$p$',
         'specific enthalpy':'$h$', 'relative humidity':'$\phi$',
         'absolute humidity':'$\omega$', 'flow direction':'$\gamma$',
-        'relative error':'$\delta$', 'enthalpy':'$h$'
-    }
+        'relative error':'$\delta$', 'enthalpy':'$h$'}
 
     # Store this boolean as it is used numerous times.
     t_str = isinstance(time, str)
