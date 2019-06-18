@@ -175,6 +175,55 @@ class _Quantity(pint.quantity._Quantity):
 
         ax.format_coord = fmtr
 
+    def movmean(self, n):
+        """
+        Compute the moving mean of the Quantity.
+
+        Parameters
+        ----------
+        n : int
+            Size of the window used to compute the moving average.
+            This value must be odd, otherwise it will be incremented.
+
+        Returns
+        -------
+        array_like
+            Moving mean of array a with window of size n.
+
+        Examples
+        --------
+        Plot only one variable (say Tr):
+
+        >>> a = np.random.rand(50)
+        >>> mean = movmean(a, 20)
+
+        """
+
+        try:
+            if len(self.magnitude) < 3:
+                raise ValueError('The length must be at least 3 '
+                                 'to compute a moving mean.')
+        except TypeError:
+            raise ValueError('The length must be at least 3 '
+                             'to compute a moving mean.')
+        # Increment n if it is even
+        n += 1 if n % 2 == 0 else 0
+        l = (n-1) // 2  # edge length
+        # Compute cumulative sum
+        cumsum = np.cumsum(self.magnitude, dtype=float)
+        # Get a moving sum everywhere but on the edges
+        movsum = (np.append(cumsum[l:], np.zeros(l))
+                  - np.append(np.zeros(l+1), cumsum[:-l-1]))
+        # Fill the edges by mirroring them and computing their moving sum
+        cumsum_refl = np.cumsum(np.pad(self.magnitude, (l+1, l+1), 'reflect'))
+        movsum_refl = cumsum_refl[n:] - cumsum_refl[:-n]
+        # print(movsum)
+        # print(movsum_refl)
+        movsum[:l] = movsum_refl[:l]
+        movsum[-l:] = movsum_refl[-l-1:-1]
+        return self.__class__(movsum / n, self.units,
+                              label=self.label, prop=self.prop)
+
 def build_quantity_class(registry, force_ndarray=False):
     """Build a Quantity class from a registry, subclassing _Quantity"""
 

@@ -1,7 +1,5 @@
 import numpy as np
 
-from .base import DataTaker
-
 def movmean(a, n):
     """
     Compute the moving mean of an array.
@@ -32,9 +30,7 @@ def movmean(a, n):
     n += 1 if n % 2 == 0 else 0
     l = (n-1) // 2  # edge length
     # Compute cumulative sum
-    a_is_dimensional = isinstance(a, DataTaker.Q_)
-    cumsum = (np.cumsum(a.magnitude, dtype=float) if a_is_dimensional
-              else np.cumsum(a, dtype=float))
+    cumsum = np.cumsum(a, dtype=float)
     # Get a moving sum everywhere but on the edges
     movsum = (np.append(cumsum[l:], np.zeros(l))
               - np.append(np.zeros(l+1), cumsum[:-l-1]))
@@ -45,7 +41,4 @@ def movmean(a, n):
     # print(movsum_refl)
     movsum[:l] = movsum_refl[:l]
     movsum[-l:] = movsum_refl[-l-1:-1]
-    if a_is_dimensional:
-        return DataTaker.Q_(movsum / n, a.units, label=a.label, prop=a.prop)
-    else:
-        return movsum / n
+    return movsum / n
