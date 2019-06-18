@@ -35,8 +35,6 @@ def movmean(a, n):
     # Fill the edges by mirroring them and computing their moving sum
     cumsum_refl = np.cumsum(np.pad(a, (l+1, l+1), 'reflect'))
     movsum_refl = cumsum_refl[n:] - cumsum_refl[:-n]
-    # print(movsum)
-    # print(movsum_refl)
     movsum[:l] = movsum_refl[:l]
     movsum[-l:] = movsum_refl[-l-1:-1]
     return movsum / n
