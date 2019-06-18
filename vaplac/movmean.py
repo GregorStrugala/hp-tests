@@ -19,10 +19,8 @@ def movmean(a, n):
 
     Examples
     --------
-    Plot only one variable (say Tr):
-
     >>> a = np.random.rand(50)
-    >>> mean = movmean(a, 20)
+    >>> mean = vpa.movmean(a, 9)
 
     """
 

@@ -192,10 +192,10 @@ class _Quantity(pint.quantity._Quantity):
 
         Examples
         --------
-        Plot only one variable (say Tr):
-
-        >>> a = np.random.rand(50)
-        >>> mean = movmean(a, 20)
+        >>> ureg = UnitRegistry()
+        >>> t = np.random.rand(50) * ureg.second
+        >>> window_size = 9
+        >>> t.movmean(window_size)
 
         """
 
