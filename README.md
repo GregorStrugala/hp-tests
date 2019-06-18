@@ -33,9 +33,10 @@ can be used as shown by the following example:
   dtk = vpa.DataTaker()  # No file name provided: a dialog box should ask for it.
   dtk.validate()  # If warnings are given, use show_data=True to display the relevant quantitites.
   ```
-2. Plot the return and supply temperatures and the frequency
+2. Plot the return and supply temperatures, the frequency in rpm and the inlet
+and outlet pressures in MPa.
   ```python
-  dtk.plot('(Tr Ts) f')
+  dtk.plot('(Tr Ts) f/rpm (pin pout)/MPa')
   ```
 3. Extract the condenser heat output, the indoor fan power and the total
 consumed power to compute the COP, then display some statistical
