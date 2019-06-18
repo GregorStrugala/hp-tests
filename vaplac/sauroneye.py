@@ -23,8 +23,10 @@ def humidity_check(field, dtk, error):
 def cycling_check(field, dtk, error):
     """Check if there is cycling."""
     _checkargs['cycling_check'] = 'f'
-    varf = np.var(dtk.get('f'))
-    if varf > dtk.Q_('400 Hz**2'):
-        error(field, 'There appears to be short cycling.')
-    elif varf > dtk.Q_('100 Hz**2'):
-        error(field, 'There appears to be cycling with long steps.')
+    window_size = 15
+    f = dtk.get('f')
+    fmean = f.movmean(window_size)
+    interval = slice(window_size//2, -window_size//2)
+    variance = np.var(f[interval] - fmean[interval])
+    if variance > dtk.Q_('100 Hz**2'):
+        error(field, 'There appears to be cycling.')

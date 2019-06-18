@@ -527,7 +527,7 @@ class DataTaker():
                 warn = list(v.errors.values())[0][0]
                 print('Warning:', warn[0].lower() + warn[1:] if warn else warn)
 
-        if show_data:
-            checkargs = sauroneye._checkargs
-            args = ' '.join(checkargs[check] for check in v.errors)
-            self.plot(args)
+            if show_data:
+                checkargs = sauroneye._checkargs
+                args = ' '.join(checkargs[check] for check in v.errors)
+                self.plot(args)
