@@ -238,9 +238,6 @@ class DataTaker():
                 )
 
         for quantity in dependant - {'Pel'}:
-            # First get the adequate refrigerant states according to
-            # the quantity to build and the refrigerant flow direction.
-            ref_dir = self.get('refdir')
             if heating:
                 ref_states = {
                     'Qcond': 'pout T4 pout T6',
