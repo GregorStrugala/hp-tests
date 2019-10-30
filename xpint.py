@@ -98,7 +98,7 @@ class _Quantity(pint.quantity._Quantity):
             if q.magnitude == 0 or q_rd.magnitude != 0:
                 return len(str(q_rd)), q_rd
             else:
-                return len(f'{q:.2e} ', f'{q:.2e} '
+                return len(f'{q:.2e} '), f'{q:.2e} '
 
         # Get the length and values
         l_min, v_min = fmt(self.min())
