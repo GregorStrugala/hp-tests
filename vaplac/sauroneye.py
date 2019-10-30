@@ -17,8 +17,8 @@ def humidity_check(field, dtk, error):
     overhum = (wr < ws).sum() / len(wr)
     if overhum > 0.02:
         msg = ('The supply humidity ratio exceeds '
-               'the return humidity ratio {:.1%} of the time.')
-        error(field, msg.format(overhum))
+               f'the return humidity ratio {overhum:.1%} of the time.')
+        error(field, msg)
 
 def cycling_check(field, dtk, error):
     """Check if there is cycling."""

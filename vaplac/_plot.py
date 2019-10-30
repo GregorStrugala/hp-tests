@@ -99,7 +99,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
 
         # Cannot use Quantity().dimensionless in case of percentages
         if str(q.units) != 'dimensionless':
-            post = ' ({:~P})'.format(q.units)
+            post = f' ({q.units:~P})'
         else:
             post = ''
 
@@ -123,7 +123,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
             ax.plot(t, args[0][interval].magnitude)
             ax.set(ylabel=y_label(args[0], 'label'))
             # Label (or property) and units used in status bar
-            sbdim, sbunit = args[0].prop, '{:~P}'.format(args[0].units)
+            sbdim, sbunit = args[0].prop, f'{args[0].units:~P}'
 
         else:  # There are several plots.
             for var in args[0]:
@@ -137,7 +137,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
             # The y-label is by default that of the last element.
             ax.set(ylabel=y_label(args[0][-1], 'prop'))
 
-            sbdim, sbunit = args[0][-1].prop, '{:~P}'.format(args[0][-1].units)
+            sbdim, sbunit = args[0][-1].prop, f'{args[0][-1].units:~P}'
             if legend:
                 ax.legend(loc=loc, frameon=lf)
 
@@ -150,7 +150,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
             if not isinstance(var, list):
                 ax[i].plot(t, var[interval].magnitude)
                 ax[i].set(ylabel=y_label(var, 'label'))
-                sbdim, sbunit = var.prop, '{:~P}'.format(var.units)
+                sbdim, sbunit = var.prop, f'{var.units:~P}'
             else:
                 for var2 in var:
                     ax[i].plot(t, var2[interval].magnitude, label=var2.label)
@@ -161,7 +161,7 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
                     warnings.warn(warn_msg_unit)
 
                 ax[i].set(ylabel=y_label(var[-1], 'prop'))
-                sbdim, sbunit = var[-1].prop, '{:~P}'.format(var[-1].units)
+                sbdim, sbunit = var[-1].prop, f'{var[-1].units:~P}'
                 if legend:
                     ax[i].legend(loc=loc, frameon=lf)
 

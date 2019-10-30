@@ -70,7 +70,7 @@ class DataTaker():
         self.quantities = {}
 
     def __repr__(self):
-        return 'DataTaker({})'.format(self.read_file)
+        return f'DataTaker({self.read_file})'
 
     def _build_name_converter(self, filename):
         """
@@ -192,8 +192,7 @@ class DataTaker():
         to_clean = quantities.intersection({'f', 'flowrt_r'})
         dependant = quantities.intersection(
             {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev'})
-        enthalpies = quantities.intersection(
-            {'h{}'.format(i+1) for i in range(9)})
+        enthalpies = quantities.intersection({f'h{i+1}' for i in range(9)})
         as_is = quantities - hum_ratios - to_clean - dependant - enthalpies
 
         if enthalpies or dependant - {'Pel'}:
@@ -277,11 +276,11 @@ class DataTaker():
                 pstate = 'out'
             else:
                 raise ValueError('The enthalpy state must be between 1 and 9.')
-            p, T = self.get('p{} T{}'.format(pstate, state))
+            p, T = self.get(f'p{pstate} T{state}')
             h = properties('H', 'P', p.to('Pa').magnitude,
                            'T', T.to('K').magnitude, 'R410a')
             self.quantities[enthalpy] = self.Q_(h,
-                                                label='$h_{}$'.format(state),
+                                                label=f'$h_{state}$',
                                                 prop='enthalpy',
                                                 units='J/kg').to('kJ/kg')
 
@@ -387,8 +386,8 @@ class DataTaker():
                     if arg.startswith('/'):
                         unit = arg[1:]
                         group = iterator[i-1]
-                        iterator[i-1] = '/{} '.format(unit).join(group.split(' '))
-                        iterator[i-1] += '/{}'.format(unit)
+                        iterator[i-1] = f'/{unit} '.join(group.split(' '))
+                        iterator[i-1] += f'/{unit}'
                         del iterator[i]
             def appender(arg):
                 if ' ' in arg:
@@ -512,7 +511,7 @@ class DataTaker():
         else:
             n_warn = len(v.errors)
             if n_warn > 1:
-                print('There are {} warnings:'.format(n_warn))
+                print(f'There are {n_warn} warnings:')
                 for i, warning in enumerate(v.errors.values()):
                     print(' ', i+1, warning[0])
             else:

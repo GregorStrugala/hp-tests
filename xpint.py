@@ -88,7 +88,7 @@ class _Quantity(pint.quantity._Quantity):
         else:
             if self.prop is None:
                 print('Unspecified property',
-                      '(with units {})'.format(self.units), '\n')
+                      f'(with units {self.units})', '\n')
             else:
                 print(self.prop, '\n')
 
@@ -98,7 +98,7 @@ class _Quantity(pint.quantity._Quantity):
             if q.magnitude == 0 or q_rd.magnitude != 0:
                 return len(str(q_rd)), q_rd
             else:
-                return len('{:.2e} '.format(q)), '{:.2e} '.format(q)
+                return len(f'{q:.2e} ', f'{q:.2e} '
 
         # Get the length and values
         l_min, v_min = fmt(self.min())
@@ -150,10 +150,10 @@ class _Quantity(pint.quantity._Quantity):
             if self.dimensionless:
                 ax.set(ylabel=self.label)
             else:
-                ax.set(ylabel=self.label + ' ({:~P})'.format(self.units))
+                ax.set(ylabel=self.label + f' ({self.units:~P})')
 
         # label (or property) and units used in status bar
-        sbdim, sbunit = self.prop, '{:~P}'.format(self.units)
+        sbdim, sbunit = self.prop, f'{self.units:~P}'
 
         # Create (unformatted) statusbar
         statusbar = {True:'time: {:.2f} {}     {}: {:.2f} {}',
