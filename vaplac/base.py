@@ -60,12 +60,13 @@ class DataTaker():
     ureg.define('ppm = 1e-6 fraction')
 
     def __init__(self, filename=None, initialdir='heating-data',
-                 convert_file='name_conversions_UTF8.txt'):
+                 convert_file=None):
         # assign read_file and raw_data attribute
         self.read_file = self.read(filename, initialdir=initialdir)
         # assign _name_converter attribute
-        if platform.system() == 'Windows':
-            convert_file = 'name_conversions_ANSI.txt'
+        if convert_file is None:
+            encoding = 'ANSI' if platform.system() == 'Windows' else 'UTF8'
+            convert_file = f'name_conversions_{encoding}.txt'
         self._build_name_converter(convert_file)
         self.quantities = {}
 
@@ -329,7 +330,6 @@ class DataTaker():
         if len(quantities) > 1:
             return (update_units(self.quantities, quantity)
                     for quantity in quantities)
-            # return (self.quantities[quantity].to(spec_units.get(quantity)) for quantity in quantities)
         else:
             return update_units(self.quantities, quantities[0])
 
