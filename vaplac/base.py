@@ -59,10 +59,12 @@ class DataTaker():
     ureg.define('percent = 1e-2 frac = pct')
     ureg.define('ppm = 1e-6 fraction')
 
-    def __init__(self, filename=None, initialdir='heating-data',
+    def __init__(self, filenames=None, initialdir='.', filetype=None,
                  convert_file=None):
-        # assign read_file and raw_data attribute
-        self.read_file = self.read(filename, initialdir=initialdir)
+        self.raw_data = None
+        self.read_files = []
+        # assign read_file and raw_data attributes
+        self.read(filenames, initialdir=initialdir)
         # assign _name_converter attribute
         if convert_file is None:
             encoding = 'ANSI' if platform.system() == 'Windows' else 'UTF8'
@@ -71,7 +73,7 @@ class DataTaker():
         self.quantities = {}
 
     def __repr__(self):
-        return f'DataTaker({self.read_file})'
+        return f'DataTaker({self.read_files})'
 
     def _build_name_converter(self, filename):
         """
@@ -91,7 +93,7 @@ class DataTaker():
         nconv[nconv=='-'] = None
         self._name_converter = nconv
 
-    def read(self, filename=None, initialdir='heating-data'):
+    def read(self, paths=None, initialdir='.', filetype=None):
         """
         Read a data file and assign it to the raw_data attribute.
 
@@ -107,56 +109,74 @@ class DataTaker():
 
         """
 
-        if filename is None:
+        if filetype is not None:
+            filetype = filetype.lstrip('.').lower().replace('xlsx', 'excel')
+        if paths is None:
+            # Display default files based on the specified filetype
+            if filetype is None:
+                filetypes = (('All files', '.*'), ('CSV', '.csv'),
+                             ('Excel', '.xlsx'))
+            elif filetype.lower() in ('csv', '.csv'):
+                filetypes = (('CSV', '.csv'), ('All files', '.*'))
+            elif filetype.lower() in ('excel', 'xlsx', '.xlsx'):
+                filetypes = (('Excel', '.xlsx'), ('All files', '.*'))
             Tk().withdraw()  # remove tk window
             # Open dialog window in initialdir
-            filetypes=(('All files', '.*'),
-                       ('CSV', '.csv'),
-                       ('Excel', '.xlsx'))
-            filename = askopenfilename(initialdir=initialdir,
-                                       title='Select input file',
-                                       filetypes=filetypes)
-        # Return if the Cancel button is pressed
-        if filename in ((), ''):
-            return None
-
-        # Get the file type from the extension
-        _, ext = splitext(filename)
-        if ext.lower() == '.csv':
-            filetype = 'csv'
-        elif ext.lower() == '.xlsx':
-            filetype = 'excel'
-        else:
-            raise ValueError('invalid file extension')
-
-        # Check the file encoding:
-        with open(filename, encoding='UTF8') as f:
-            try:
-                next(f)
-            except UnicodeDecodeError:
-                encoding = 'ISO-8859-1'
+            paths = askopenfilenames(initialdir=initialdir,
+                                     title='Select input file',
+                                     filetypes=filetypes)
+            # Return if the Cancel button is pressed
+            if paths in ((), ''):
+                return None
+        elif paths == 'all':  # take every file in initialdir
+            filenames = listdir(initialdir)
+            if filetype is None:
+                paths = [f'{initialdir}/{filename}' for filename in filenames]
             else:
-                encoding = 'UTF8'
+                extension = filetype.replace('excel', 'xlsx')
+                if extension.lstrip('.') not in ('csv', 'xlsx'):
+                    raise ValueError('invalid file extension')
+                paths = [f'{initialdir}/{filename}' for filename in filenames
+                         if filename.lower().endswith(extension)]
 
-        # Define the reader function according to the file type
-        call = 'read_' + filetype
-        # Read the first line
-        raw_data = getattr(pd, call)(filename, nrows=0, encoding=encoding)
+        def encoding(file):
+            """Check the encoding of a file."""
 
-        # Fetch the data
-        if any( word in list(raw_data)[0] for word in
-               ['load', 'aux', 'setpoint', '|', 'PdT'] ):
+            with open(file, encoding='UTF8') as f:
+                try:
+                    next(f)
+                except UnicodeDecodeError:
+                    return 'ISO-8859-1'
+                else:
+                    return 'UTF8'
 
-            # Print the test conditions
-            print('Test conditions :', list(raw_data)[0])
-
-            # Skip the first row containing the conditions
-            self.raw_data = getattr(pd, call)(filename, skiprows=1,
-                                              encoding=encoding)
-        else:
-            self.raw_data = getattr(pd, call)(filename, encoding=encoding)
-
-        return basename(filename)
+        for path in paths:
+            _, extension = splitext(path.lower())
+            if extension not in ('.csv', '.xlsx'):
+                raise ValueError('invalid file extension')
+            if filetype is None:
+                filetype = {'.csv':'csv', '.xlsx':'excel'}[extension]
+            # Define the reader function according to the file type
+            call = 'read_' + filetype
+            first_line = getattr(pd, call)(path, nrows=0, encoding=encoding(path))
+            if any( word in list(first_line)[0] for word in
+                ['load', 'aux', 'setpoint', '|', 'PdT'] ):
+                # Print the test conditions if only one file
+                if len(paths) == 1:
+                    print('Test conditions :', list(first_line)[0])
+                # Skip the first row containing the conditions
+                raw_data = getattr(pd, call)(path, skiprows=1,
+                                             encoding=encoding(path))
+            else:
+                raw_data = getattr(pd, call)(path, encoding=encoding(path))
+            timestamp = raw_data['Timestamp'][0]
+            raw_data['id'] = pd.Timestamp(timestamp).strftime('%d/%m')
+            if self.raw_data is None:
+                self.raw_data = raw_data
+            else:
+                self.raw_data = pd.concat([self.raw_data, raw_data],
+                                          sort=False)
+            self.read_files.append(basename(path))
 
     def _build_quantities(self, *quantities, update=True):
         """
