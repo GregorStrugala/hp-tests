@@ -175,11 +175,15 @@ class DataTaker():
             raw_data['Timestamp'] = pd.to_datetime(
                 raw_data['Timestamp']
             ).apply(lambda t: t.round('s'))
-            start_time = raw_data['Timestamp'].iloc[0]
-            stop_time = raw_data['Timestamp'].iloc[-1]
-            test_duration = stop_time - start_time
-            period = pd.period_range(start_time, stop_time, freq=test_duration)
-            raw_data['test_period'] = raw_data.apply(lambda r: period, axis=1)
+            start_timestamp = raw_data['Timestamp'].iloc[0]
+            stop_timestamp = raw_data['Timestamp'].iloc[-1]
+            test_duration = stop_timestamp - start_timestamp
+            start_time = start_timestamp.strftime('%d/%m %H:%M')
+            stop_time = stop_timestamp.strftime('{}%H:%M'.format(
+                '%d/%m ' if test_duration > pd.Timedelta('1 day') else '')
+            )
+            raw_data['test_period'] = f'{start_time} - {stop_time}'
+            raw_data['test_duration'] = test_duration
             if self.raw_data is None:
                 self.raw_data = raw_data
             else:
