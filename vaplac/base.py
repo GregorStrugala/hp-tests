@@ -138,6 +138,8 @@ class DataTaker():
                     raise ValueError('invalid file extension')
                 paths = [f'{initialdir}/{filename}' for filename in filenames
                          if filename.lower().endswith(extension)]
+        elif isinstance(paths, str):  # only one path given
+            paths = [paths]
 
         def encoding(file):
             """Check the encoding of a file."""
@@ -176,10 +178,11 @@ class DataTaker():
                 self.raw_data = raw_data
             else:
                 self.raw_data = pd.concat([self.raw_data, raw_data],
-                                          sort=False)
+                                          sort=False).reset_index(drop=True)
             self.read_files.append(basename(path))
-        self.raw_data['Timestamp'] = pd.to_datetime(self.raw_data['Timestamp']
-                                                    ).apply(lambda t: t.round('s'))
+        self.raw_data['Timestamp'] = pd.to_datetime(
+            self.raw_data['Timestamp']
+        ).apply(lambda t: t.round('s'))
 
     def _build_quantities(self, *quantities, update=True):
         """
