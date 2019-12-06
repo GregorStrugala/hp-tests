@@ -172,17 +172,20 @@ class DataTaker():
                                              encoding=encoding(path))
             else:
                 raw_data = getattr(pd, call)(path, encoding=encoding(path))
-            timestamp = raw_data['Timestamp'][0]
-            raw_data['id'] = pd.Timestamp(timestamp).strftime('%d/%m')
+            raw_data['Timestamp'] = pd.to_datetime(
+                raw_data['Timestamp']
+            ).apply(lambda t: t.round('s'))
+            start_time = raw_data['Timestamp'].iloc[0]
+            stop_time = raw_data['Timestamp'].iloc[-1]
+            test_duration = stop_time - start_time
+            period = pd.period_range(start_time, stop_time, freq=test_duration)
+            raw_data['test_period'] = raw_data.apply(lambda r: period, axis=1)
             if self.raw_data is None:
                 self.raw_data = raw_data
             else:
                 self.raw_data = pd.concat([self.raw_data, raw_data],
                                           sort=False).reset_index(drop=True)
             self.read_files.append(basename(path))
-        self.raw_data['Timestamp'] = pd.to_datetime(
-            self.raw_data['Timestamp']
-        ).apply(lambda t: t.round('s'))
 
     def _build_quantities(self, *quantities, update=True):
         """
