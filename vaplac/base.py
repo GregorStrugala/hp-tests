@@ -158,7 +158,8 @@ class DataTaker():
                 filetype = {'.csv':'csv', '.xlsx':'excel'}[extension]
             # Define the reader function according to the file type
             call = 'read_' + filetype
-            first_line = getattr(pd, call)(path, nrows=0, encoding=encoding(path))
+            first_line = getattr(pd, call)(path,
+                                           nrows=0, encoding=encoding(path))
             if any( word in list(first_line)[0] for word in
                 ['load', 'aux', 'setpoint', '|', 'PdT'] ):
                 # Print the test conditions if only one file
@@ -177,6 +178,8 @@ class DataTaker():
                 self.raw_data = pd.concat([self.raw_data, raw_data],
                                           sort=False)
             self.read_files.append(basename(path))
+        self.raw_data['Timestamp'] = pd.to_datetime(self.raw_data['Timestamp']
+                                                    ).apply(lambda t: t.round('s'))
 
     def _build_quantities(self, *quantities, update=True):
         """
@@ -188,7 +191,7 @@ class DataTaker():
         *quantities : {'T{1-9}', 'h{1-9}', 'Ts', 'Tr', 'Tin', 'Tout',
                        'Tamb', 'Tdtk', 'RHout','Tout_db', 'pin', 'pout',
                        'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
-                       'Ptot', 'Qcond', 'Qev', 'Pcomp', 'flowrt_r'}
+                       'Ptot', 'Qcond', 'Qev', 'Pcomp', 'flowrt_r', 't'}
         update : boolean, default True
             If set to False, quantities already present will not be
             replaced.
@@ -212,11 +215,11 @@ class DataTaker():
         hum_ratios = quantities.intersection({'ws', 'wr'})
         to_clean = quantities.intersection({'f', 'flowrt_r'})
         dependant = quantities.intersection(
-            {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev'})
+            {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev', 't'})
         enthalpies = quantities.intersection({f'h{i+1}' for i in range(9)})
         as_is = quantities - hum_ratios - to_clean - dependant - enthalpies
 
-        if enthalpies or dependant - {'Pel'}:
+        if enthalpies or dependant - {'Pel', 't'}:
             ref_dir = self.get('refdir')
             # majority of 0 = heating, majority of 1 = cooling
             heating = np.count_nonzero(ref_dir) < len(ref_dir) / 2
@@ -257,7 +260,7 @@ class DataTaker():
                     units=nconv.loc['flowrt_r', 'units']
                 )
 
-        for quantity in dependant - {'Pel'}:
+        for quantity in dependant - {'Pel', 't'}:
             if heating:
                 ref_states = {
                     'Qcond': 'pout T4 pout T6',
@@ -279,6 +282,15 @@ class DataTaker():
                                              label='$P_{el}$',
                                              prop='electrical power',
                                              units=Pel.units).to('kW')
+
+        if 't' in dependant:
+            t0 = self.raw_data['Timestamp'][0]
+            t1 = self.raw_data['Timestamp'][1]
+            timestep = t1 - t0
+            samples_number = len(self.raw_data.index)
+            time_in_seconds = np.arange(samples_number) * timestep.seconds
+            self.quantities['t'] = self.Q_(time_in_seconds, 'seconds',
+                                           label='$t$', prop='time')
 
         for quantity in as_is:
             magnitude = self.raw_data[nconv.loc[quantity, 'col_names']].values
@@ -353,7 +365,7 @@ class DataTaker():
         else:
             return update_units(self.quantities, quantities[0])
 
-    def plot(self, quantities='all', timestamp=False, **kwargs):
+    def plot(self, dependants='all', independants='t/minutes', **kwargs):
         """
         Plot DataTaker's quantities against time.
 
@@ -379,29 +391,29 @@ class DataTaker():
         # Store in a list the arguments to pass
         # to the datataker.plot method
         args = [] # parameters to pass to plot function
-        quantities = 'allmerge' if quantities == 'all' else quantities
+        dependants = 'allmerge' if dependants == 'all' else dependants
 
         # Define an iterator and an appender to add the right quantities
         # to the args list
-        if quantities == 'allsplit':
-            iterator = self.quantities.keys()
+        if dependants == 'allsplit':
+            iterator = self.dependants.keys()
             appender = lambda arg: self.get(arg)
-        elif quantities == 'allmerge':
+        elif dependants == 'allmerge':
             def gen():
-                # Group quantities by property
-                key = lambda q: self.quantities[q].prop
-                for _, prop in groupby(sorted(self.quantities, key=key), key):
+                # Group dependants by property
+                key = lambda q: self.dependants[q].prop
+                for _, prop in groupby(sorted(self.dependants, key=key), key):
                     # Yield a list in any case, the appender will take
                     # care of the cases with only one element
-                    yield [self.quantities[q] for q in prop]
+                    yield [self.dependants[q] for q in prop]
             iterator = gen()
             appender = lambda arg: arg[0] if len(arg) == 1 else arg
-        elif any(delim in quantities for delim in ('(', '[', '{')):
+        elif any(delim in dependants for delim in ('(', '[', '{')):
             # Split but keep grouped quantities together
             iterator = [arg.strip('()')
-                        for arg in re.findall(r'\([^\)]*\)|\S+', quantities)]
+                        for arg in re.findall(r'\([^\)]*\)|\S+', dependants)]
             # Distribute any unit specified over a group
-            if ')/' in quantities:
+            if ')/' in dependants:
                 for i, arg in enumerate(iterator):
                     if arg.startswith('/'):
                         unit = arg[1:]
@@ -415,19 +427,15 @@ class DataTaker():
                 else:
                     return self.get(arg)
         else:
-            iterator = quantities.split()
+            iterator = dependants.split()
             appender = lambda arg: self.get(arg)
 
         for arg in iterator:
             args.append(appender(arg))
 
-        if timestamp:
-            # Take a minute resolution
-            as_rounded_timestamp = lambda t: pd.Timestamp(t).round('min')
-            t = self.raw_data['Timestamp'].apply(as_rounded_timestamp)
-            kwargs['time'] = t
+        commons = [self.get(common) for common in independants.split()]
 
-        plot(*args, **kwargs)
+        plot(*args, commons=commons, **kwargs)
 
     @ureg.wraps(None, (None, None, ureg.kilogram/ureg.second,
                        ureg.pascal, ureg.kelvin, ureg.pascal, ureg.kelvin))

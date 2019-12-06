@@ -9,8 +9,9 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import warnings
 
-def plot(*args, time='min', step=60, interval=slice(0, None),
-         sharex='col', legend=True, lf=True, loc='best'):
+def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
+         legend=True, legend_args={'frameon':False}, plots_types=None,
+         plots_args=None, scatter_args={'s':10}, line_args={}, **kwargs):
     """
     Plot variables specified as arguments against time.
 
@@ -19,27 +20,23 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
     *args : xpint Quantity, or list of xpint Quantity
         The quantities to be plotted. Quantities grouped in a list are
         plotted in the same axis.
-    time : {'s', 'min', 'h', 'day'} or ndarray, default 'min'
-        Controls what is displayed on the x-axis. If 's', 'min', 'h' or
-        'day' is given, a minute timestep is assumed by default and the
-        x-axis is created to fit the length of variables in `*args` (see
-        `step` parameter to set another timestep).
-        Alternatively, an explicit array can be given
-        (including datetime arrays).
-    step : int or float
-        The timestep between each measurement in seconds.
-    interval : slice, default slice(0, None)
-        A slice object containing the range over which the quantities
-        are plotted.
+    commons : tuple of datetime array, xpint Quantity, or list, default None
+        Variable(s) against which the first arguments are plotted.
+        If 's', 'min', 'h' or 'day' is given, a minute timestep
+        is assumed by default and the axis is created to fit the length
+        of variables in `*args`.
+        (See `step` parameter to set another timestep.)
+        Alternatively, an explicit datetime or xpint array can be given.
+    pos : 'abscissa' or 'ordinate', default 'abscissa'
+        Axis on which the common variable should be displayed.
     sharex : bool or {'none', 'all', 'row', 'col'}, default 'col'
         Controls sharing of properties among x axis (see parameter
-        `sharex` in `matplotlib.pyplot.subplots` function)
+        `sharex` in `matplotlib.pyplot.subplots` function).
+    sharey : bool or {'none', 'all', 'row', 'col'}, default False
+        Controls sharing of properties among y axis (see parameter
+        `sharey` in `matplotlib.pyplot.subplots` function).
     legend : bool, default True
         When set to False, no legend is displayed.
-    lf : bool, default True
-        When set to False, a legend frame is displayed.
-    loc : int or string or pair of floats, default 'best'
-        See `loc` parameter in `matplotlib.pyplot.legend`.
 
     Examples
     --------
@@ -55,24 +52,32 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
 
     >>> plot([Tr, Ts], f)
 
+    Plot Tr quantity against Ts
+
+    >>> plot(Tr, common=Ts)
+
+    Plot Tr and Ts against Tout, with Tout as ordinate
+
+    >>> plot([Tr, Ts], common=Tout, pos='ordinate')
+
     """
 
-    res = {'s':1/step, 'min':60/step, 'h':3600/step, 'days':86400/step}
-    properties = {
-        'temperature':'$T$', 'electrical power':'$P$',
-        'mechanical power':'$\dot{W}$','heat transfer rate':'$\dot{Q}$',
-        'difference of internal energy rate of change':'$\Delta\dot U$',
-        'flow rate':'$\dot{m}$', 'frequency':'$f$', 'pressure':'$p$',
-        'specific enthalpy':'$h$', 'relative humidity':'$\phi$',
-        'absolute humidity':'$\omega$', 'flow direction':'$\gamma$',
-        'relative error':'$\delta$', 'enthalpy':'$h$'}
+    if commons is None and len(args) < 2:
+        raise ValueError('At least two dependant variables must be provided.')
+    elif commons is None:
+        if isinstance(args[0], list):
+            commons = [args[0][0]]
+            args_start = args[0][1:] if len(args[0]) > 1 else []
+            args = args_start + args[1:]
+        else:
+            commons = [args[0]]
+            args = args[1:]
 
-    # Store this boolean as it is used numerous times.
-    t_str = isinstance(time, str)
-
-    a0_list = isinstance(args[0], list)
-    length = len(args[0][0][interval] if a0_list else args[0][interval])
-    t = np.arange(0, length) / res[time] if t_str else time[interval]
+    abscissa = (pos == 'abscissa')
+    ordinate = (pos == 'ordinate')
+    if not (abscissa or ordinate):
+        err = "Parameter pos should be either 'abscissa' or 'ordinate'."
+        raise ValueError(err)
 
     warn_msg_dim = ('Quantities with different dimensionalities '
                     'are displayed on the same plot')
@@ -80,95 +85,114 @@ def plot(*args, time='min', step=60, interval=slice(0, None),
                      'are displayed on the same plot')
     warnings.simplefilter('always')
 
-    # Create the statusbar string to be formatted.
-    statusbar = {True:'time: {:.2f} {}     {}: {:.2f} {}',
-                 False:'time: {}     {}: {:.2f} {}'}[t_str]
+    properties = {  # Label used for Axes with several plots
+        'temperature':'$T$', 'electrical power':'$P$',
+        'mechanical power':'$\dot{W}$','heat transfer rate':'$\dot{Q}$',
+        'difference of internal energy rate of change':'$\Delta\dot U$',
+        'flow rate':'$\dot{m}$', 'frequency':'$f$', 'pressure':'$p$',
+        'specific enthalpy':'$h$', 'relative humidity':'$\phi$',
+        'absolute humidity':'$\omega$', 'flow direction':'$\gamma$',
+        'relative error':'$\delta$', 'enthalpy':'$h$', 'time':'$t$'}
+
+    def ordered(i, j):
+        return (i,j) if abscissa else (j,i)
 
     # Create the figure and axis.
-    fig, ax = plt.subplots(len(args), sharex=sharex, facecolor=(.93,.93,.93))
+    fig, ax = plt.subplots(*ordered(len(args), len(commons)),
+                           sharex=sharex, sharey=sharey,
+                           squeeze=False, facecolor=(.93,.93,.93))
 
-    def y_label(q, attr):
-        """Create a y label for the quantity q."""
+    def label(quantity, attribute, common=False):
+        """Create an axis label for the quantity q."""
+
         # Ensure that there is a non-empty label
         # or a property listed in the properties dictionary
-        if (attr == 'label' and q.label is None or
-            attr == 'prop' and q.prop not in properties):
+        if (attribute == 'label' and quantity.label is None or
+            attribute == 'prop' and quantity.prop not in properties):
             return None
 
-        pre = {'label':q.label, 'prop':properties[q.prop]}.get(attr, '')
-
+        pre = {'label': quantity.label,
+               'prop': properties[quantity.prop]}.get(attribute, '')
         # Cannot use Quantity().dimensionless in case of percentages
-        if str(q.units) != 'dimensionless':
-            post = f' ({q.units:~P})'
+        if str(quantity.units) != 'dimensionless':
+            post = f' ({quantity.units:~P})'
         else:
             post = ''
+        axis = 'x' if common and abscissa or not (common or abscissa) else 'y'
+        return {f'{axis}label': pre + post if pre + post != '' else None}
 
-        return pre + post if pre + post != '' else None
+    coordinates = '{}: {:.2f} {:~P}     {}: {:.2f} {:~P}'
 
+    def formatter(x, y, props, units):
+        xprop, yprop, xunits, yunits = *props, *units
+        return coordinates.format(xprop, x, xunits, yprop, y, yunits)
 
-    def fmtr(x, y, sbdim, sbunit, ax):
-        """Make a formatter for the axis statusbar"""
-        if t_str:
-            return statusbar.format(x, time, sbdim, y, sbunit)
+    # wrap formatter using kwargs so that
+    # each subplot gets its own statusbar
+    def fmtr_wrap(xprop, yprop, xunits, yunits):
+
+        def fmt_coord(x, y, props=ordered(xprop, yprop),
+                      units=ordered(xunits, yunits)):
+            return formatter(x, y, props, units)
+
+        return fmt_coord
+
+    def set_defaults(x, y, row, col):
+
+        if plots_types is None:
+            has_time = x.check('[time]') or y.check('[time]')
+            plot_type = 'line' if has_time else 'scatter'
         else:
-            def datefmt(ax):
-                t_min, t_max = (int(t) for t in ax.get_xlim())
-                fmt = '%d %H:%M:%S' if t_max-t_min > 0 else '%H:%M:%S'
-                return mdates.DateFormatter(fmt)
-            return statusbar.format(datefmt(ax)(x), sbdim, y, sbunit)
+            plot_type = plots_types[row][col]
+        plot_args = (plots_args[row][col] if plots_args else {}) or {}
+        type_args = {'scatter': scatter_args, 'line': line_args}[plot_type]
+        return plot_type, {**kwargs, **type_args, **plot_args}
 
-    if len(args) == 1:  # There is only one axis (that may have several plots).
-
-        if not isinstance(args[0], list):  # There is only one plot.
-            ax.plot(t, args[0][interval].magnitude)
-            ax.set(ylabel=y_label(args[0], 'label'))
-            # Label (or property) and units used in status bar
-            sbdim, sbunit = args[0].prop, f'{args[0].units:~P}'
-
-        else:  # There are several plots.
-            for var in args[0]:
-                ax.plot(t, var[interval].magnitude, label=var.label)
-
-                if var.dimensionality != args[0][0].dimensionality:
-                    warnings.warn(warn_msg_dim)
-                if var.units != args[0][0].units:
-                    warnings.warn(warn_msg_unit)
-
-            # The y-label is by default that of the last element.
-            ax.set(ylabel=y_label(args[0][-1], 'prop'))
-
-            sbdim, sbunit = args[0][-1].prop, f'{args[0][-1].units:~P}'
-            if legend:
-                ax.legend(loc=loc, frameon=lf)
-
-        ax.format_coord = lambda x, y: fmtr(x, y, sbdim, sbunit, ax)
-
-    else:  # There are several subplots.
-        for i, var in enumerate(args):
-            # If var is not a list, there is only one variable
-            # to be plotted in the current subplot.
-            if not isinstance(var, list):
-                ax[i].plot(t, var[interval].magnitude)
-                ax[i].set(ylabel=y_label(var, 'label'))
-                sbdim, sbunit = var.prop, f'{var.units:~P}'
+    for j, common in enumerate(commons):
+        for i, arg in enumerate(args):
+            row, col = ordered(i, j)
+            if isinstance(arg, list):
+                for quantity in arg:
+                    plot_type, plot_args = set_defaults(common, quantity,
+                                                        row, col)
+                    call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
+                    plot_call = getattr(ax[row, col], call)
+                    plot_call(*ordered(common.magnitude, quantity.magnitude),
+                              label=quantity.label, **plot_args)
+                    fmt_coord = fmtr_wrap(common.prop, quantity.prop,
+                                          common.units, quantity.units)
+                    if quantity.dimensionality != arg[0].dimensionality:
+                        warnings.warn(warn_msg_dim)
+                    if quantity.units != arg[0].units:
+                        warnings.warn(warn_msg_unit)
+                if legend and (j == 0 or j == len(commons) - 1):
+                    sep = 1.05 if legend_args['frameon'] else 1
+                    if abscissa and j == len(commons) - 1:
+                        new_entries = {'loc': 'center left',
+                                       'bbox_to_anchor': (sep, 0.5)}
+                        legend_args.update(new_entries)
+                        ax[row, col].legend(**legend_args)
+                    elif ordinate and j == 0:
+                        new_entries = {'loc': 'lower center',
+                                       'bbox_to_anchor': (0.5, sep)}
+                        legend_args.update(new_entries)
+                        ax[row, col].legend(**legend_args)
+                    plt.tight_layout()
+                    plt.gcf().subplots_adjust(bottom=0.11, left=0.11)
             else:
-                for var2 in var:
-                    ax[i].plot(t, var2[interval].magnitude, label=var2.label)
+                plot_type, plot_args = set_defaults(common, arg, row, col)
+                call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
+                plot_call = getattr(ax[row, col], call)
+                plot_call(*ordered(common.magnitude, arg.magnitude),
+                          **plot_args)
+                fmt_coord = fmtr_wrap(common.prop, arg.prop,
+                                      common.units, arg.units)
+            ax[row, col].format_coord = fmt_coord
 
-                if var2.dimensionality != var[0].dimensionality:
-                    warnings.warn(warn_msg_dim)
-                if var2.units != var[0].units:
-                    warnings.warn(warn_msg_unit)
-
-                ax[i].set(ylabel=y_label(var[-1], 'prop'))
-                sbdim, sbunit = var[-1].prop, f'{var[-1].units:~P}'
-                if legend:
-                    ax[i].legend(loc=loc, frameon=lf)
-
-            # kwargs necessary so that each subplot
-            # gets its own statusbar formatter
-            def fmtri(x, y, sbdim=sbdim, sbunit=sbunit):
-                return fmtr(x, y, sbdim, sbunit, ax[i])
-            ax[i].format_coord = fmtri
-
-    plt.xlabel('$t$ (' + (time if t_str else 'timestamp') + ')');
+            if j == 0 and abscissa or j == len(commons) - 1 and ordinate:
+                if isinstance(arg, list):
+                    ax[row, col].set(**label(arg[-1], 'prop'))
+                else:
+                    ax[row, col].set(**label(arg, 'label'))
+        row, col = ordered(0 if ordinate else len(args) - 1, j)
+        ax[row, col].set(**label(common, 'label', common=True))
