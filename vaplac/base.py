@@ -152,7 +152,7 @@ class DataTaker():
                 else:
                     return 'UTF8'
 
-        for path in paths:
+        for i, path in enumerate(paths):
             _, extension = splitext(path.lower())
             if extension not in ('.csv', '.xlsx'):
                 raise ValueError('invalid file extension')
@@ -182,6 +182,7 @@ class DataTaker():
             stop_time = stop_timestamp.strftime('{}%H:%M'.format(
                 '%d/%m ' if test_duration > pd.Timedelta('1 day') else '')
             )
+            raw_data['file_index'] = i
             raw_data['test_period'] = f'{start_time} - {stop_time}'
             raw_data['test_duration'] = test_duration
             if self.raw_data is None:
@@ -191,7 +192,7 @@ class DataTaker():
                                           sort=False).reset_index(drop=True)
             self.read_files.append(basename(path))
 
-    def _build_quantities(self, *quantities, update=True):
+    def _build_quantities(self, *quantities, **kwargs):
         """
         Add quantities to the DataTaker's quantities attribute,
         optionally returning them as Quantity objects.
@@ -202,21 +203,17 @@ class DataTaker():
                        'Tamb', 'Tdtk', 'RHout','Tout_db', 'pin', 'pout',
                        'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
                        'Ptot', 'Qcond', 'Qev', 'Pcomp', 'flowrt_r', 't'}
-        update : boolean, default True
-            If set to False, quantities already present will not be
-            replaced.
 
         Example
         -------
         >>> dtk = vpa.DataTaker()
         >>> quantities = ('T1', 'T2', 'T3')
-        >>> T1, T2, T3 = dtk._build_quantities(*quantities, update=False)
+        >>> T1, T2, T3 = dtk._build_quantities(*quantities)
 
         """
 
         nconv = self._name_converter
-        stored_quantities = self.quantities.keys() if not update else {}
-        quantities = set(quantities) - set(stored_quantities)
+        quantities = set(quantities)
         # quantities are divided into 4 categories:
         #   humidity ratios,
         #   those whose magnitude require a bit of cleaning,
@@ -228,6 +225,10 @@ class DataTaker():
             {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev', 't'})
         enthalpies = quantities.intersection({f'h{i+1}' for i in range(9)})
         as_is = quantities - hum_ratios - to_clean - dependant - enthalpies
+
+        raw_data = self.raw_data
+        for key, value in kwargs.items():
+            raw_data = raw_data[raw_data[key] == value]
 
         if enthalpies or dependant - {'Pel', 't'}:
             ref_dir = self.get('refdir')
@@ -244,11 +245,8 @@ class DataTaker():
                 units='ratio'
             ).to('g/kg')
 
-        if not update and 'flowrt_r' in to_clean:
-            # Since update is False, flowrt_r is not in self.quantities
-            self._build_quantities('flowrt_r', update=True)
-        elif to_clean:
-            f = self.raw_data[nconv.loc['f', 'col_names']].values
+        if to_clean:
+            f = raw_data[nconv.loc['f', 'col_names']].values
             f[f == 'UnderRange'] = 0
             f = f.astype(float) / 2 # actual compressor frequency
             if 'f' in to_clean:
@@ -259,9 +257,7 @@ class DataTaker():
                     units=nconv.loc['f', 'units']
                 )
             if 'flowrt_r' in to_clean:
-                flowrt_r = self.raw_data[
-                    nconv.loc['flowrt_r', 'col_names']
-                ].values
+                flowrt_r = raw_data[nconv.loc['flowrt_r', 'col_names']].values
                 flowrt_r[f == 0] = 0
                 self.quantities['flowrt_r'] = self.Q_(
                     flowrt_r,
@@ -294,8 +290,8 @@ class DataTaker():
                                              units=Pel.units).to('kW')
 
         if 't' in dependant:
-            t0 = self.raw_data['Timestamp'][0]
-            t1 = self.raw_data['Timestamp'][1]
+            t0 = raw_data['Timestamp'][0]
+            t1 = raw_data['Timestamp'][1]
             timestep = t1 - t0
             samples_number = len(self.raw_data.index)
             time_in_seconds = np.arange(samples_number) * timestep.seconds
@@ -303,7 +299,7 @@ class DataTaker():
                                            label='$t$', prop='time')
 
         for quantity in as_is:
-            magnitude = self.raw_data[nconv.loc[quantity, 'col_names']].values
+            magnitude = raw_data[nconv.loc[quantity, 'col_names']].values
             self.quantities[quantity] = self.Q_(magnitude,
                 label=nconv.loc[quantity, 'labels'],
                 prop=nconv.loc[quantity, 'properties'],
@@ -327,7 +323,7 @@ class DataTaker():
                                                 prop='enthalpy',
                                                 units='J/kg').to('kJ/kg')
 
-    def get(self, variables):
+    def get(self, variables, update=False, **kwargs):
         """
         Return specific quantities from a DataTaker as Quantity objects.
 
@@ -339,9 +335,11 @@ class DataTaker():
         ----------
         quantities : str with a combination of the following items,
                      separated by spaces
-                     {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts RHs ws Tr RHr wr Tin
-                     Tout Tamb Tdtk f RHout Tout_db refdir flowrt_r pin
-                      pout Pa Pb Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
+            {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts RHs ws Tr RHr wr Tin
+             Tout Tamb Tdtk f RHout Tout_db refdir flowrt_r pin
+             pout Pa Pb Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
+        update : boolean, default False
+            If set to True, quantities already present be replaced.
 
         Returns
         -------
@@ -357,6 +355,7 @@ class DataTaker():
 
         """
 
+        update = True if kwargs else update
         spec_units = {}
         quantities = variables.split()
         for i, variable in enumerate(variables.split()):
@@ -364,16 +363,25 @@ class DataTaker():
                 quantity, unit = variable.split('/', 1)
                 quantities[i] = quantity
                 spec_units[quantity] = unit
-        # Only build quantities not already in the DataTaker's quantities
-        self._build_quantities(*(set(quantities) - set(self.quantities)))
-        # Return a Quantity if there is only one element in quantities
-        def update_units(quantities, quantity):
-            return self.quantities[quantity].to(spec_units.get(quantity))
-        if len(quantities) > 1:
-            return (update_units(self.quantities, quantity)
-                    for quantity in quantities)
+        if update:
+            self._build_quantities(*set(quantities), **kwargs)
         else:
-            return update_units(self.quantities, quantities[0])
+            # Only build quantities not already in the DataTaker's quantities
+            self._build_quantities(*(set(quantities) - set(self.quantities)))
+
+        def update_units(quantity):
+            return self.quantities[quantity].to(spec_units.get(quantity))
+
+        # Return a Quantity if there is only one element in quantities
+        if len(quantities) > 1:
+            result = (update_units(quantity) for quantity in quantities)
+        else:
+            result = update_units(quantities[0])
+
+        if kwargs:  # reset quantities without kwargs restrictions
+            self._build_quantities(*set(quantities))
+
+        return result
 
     def plot(self, dependants='all', independants='t/minutes', **kwargs):
         """
