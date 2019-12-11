@@ -71,6 +71,7 @@ class DataTaker():
             convert_file = f'name_conversions_{encoding}.txt'
         self._build_name_converter(convert_file)
         self.quantities = {}
+        self._groups = {}
 
     def __repr__(self):
         return f'DataTaker({self.read_files})'
@@ -231,13 +232,13 @@ class DataTaker():
             raw_data = raw_data[raw_data[key] == value]
 
         if enthalpies or dependant - {'Pel', 't'}:
-            ref_dir = self.get('refdir')
+            ref_dir = self.get('refdir', **kwargs)
             # majority of 0 = heating, majority of 1 = cooling
             heating = np.count_nonzero(ref_dir) < len(ref_dir) / 2
 
         for w in hum_ratios:
-            T = self.get('T' + w.strip('w')).to('K').magnitude
-            RH = self.get('RH' + w.strip('w')).to('ratio').magnitude
+            T = self.get('T' + w.strip('w'), **kwargs).to('K').magnitude
+            RH = self.get('RH' + w.strip('w'), **kwargs).to('ratio').magnitude
             self.quantities[w] = self.Q_(
                 psychro('W', 'P', 101325, 'T', T, 'RH', RH),
                 label='$\omega_{' + w.strip('w') + '}$',
@@ -278,22 +279,22 @@ class DataTaker():
                     'Qev': 'pout T7 pin T4',
                     'Pcomp': 'pin T1 pout T2',
                     'Qloss_ev': 'pin T4 pin T1'}[quantity]
-            heat_params = self.get('flowrt_r ' + ref_states)
+            heat_params = self.get('flowrt_r ' + ref_states, **kwargs)
             pow_kW = self._heat(quantity, *heat_params).to('kW')
             self.quantities[quantity] = pow_kW
 
         if 'Pel' in dependant:
-            Pel = np.add(*self.get('Pa Pb'))
+            Pel = np.add(*self.get('Pa Pb', **kwargs))
             self.quantities['Pel'] = self.Q_(Pel.magnitude,
                                              label='$P_{el}$',
                                              prop='electrical power',
                                              units=Pel.units).to('kW')
 
         if 't' in dependant:
-            t0 = raw_data['Timestamp'][0]
-            t1 = raw_data['Timestamp'][1]
+            t0 = raw_data['Timestamp'].iloc[0]
+            t1 = raw_data['Timestamp'].iloc[1]
             timestep = t1 - t0
-            samples_number = len(self.raw_data.index)
+            samples_number = len(raw_data.index)
             time_in_seconds = np.arange(samples_number) * timestep.seconds
             self.quantities['t'] = self.Q_(time_in_seconds, 'seconds',
                                            label='$t$', prop='time')
@@ -315,7 +316,7 @@ class DataTaker():
                 pstate = 'out'
             else:
                 raise ValueError('The enthalpy state must be between 1 and 9.')
-            p, T = self.get(f'p{pstate} T{state}')
+            p, T = self.get(f'p{pstate} T{state}', **kwargs)
             h = properties('H', 'P', p.to('Pa').magnitude,
                            'T', T.to('K').magnitude, 'R410a')
             self.quantities[enthalpy] = self.Q_(h,
@@ -355,7 +356,7 @@ class DataTaker():
 
         """
 
-        update = True if kwargs else update
+        # update = True if kwargs else update
         spec_units = {}
         quantities = variables.split()
         for i, variable in enumerate(variables.split()):
@@ -363,27 +364,28 @@ class DataTaker():
                 quantity, unit = variable.split('/', 1)
                 quantities[i] = quantity
                 spec_units[quantity] = unit
-        if update:
+        if update or self._groups != kwargs:
+            self.quantities = {}
             self._build_quantities(*set(quantities), **kwargs)
         else:
             # Only build quantities not already in the DataTaker's quantities
-            self._build_quantities(*(set(quantities) - set(self.quantities)))
+            self._build_quantities(*(set(quantities) - set(self.quantities)),
+                                   **kwargs)
+        self._groups = kwargs
 
         def update_units(quantity):
             return self.quantities[quantity].to(spec_units.get(quantity))
 
         # Return a Quantity if there is only one element in quantities
         if len(quantities) > 1:
-            result = (update_units(quantity) for quantity in quantities)
+            return (update_units(quantity) for quantity in quantities)
         else:
-            result = update_units(quantities[0])
-
-        if kwargs:  # reset quantities without kwargs restrictions
-            self._build_quantities(*set(quantities))
+            return update_units(quantities[0])
 
         return result
 
-    def plot(self, dependants='all', independants='t/minutes', **kwargs):
+    def plot(self, dependants='all', independants='t/minutes', groupby=None,
+             **kwargs):
         """
         Plot DataTaker's quantities against time.
 
@@ -446,12 +448,28 @@ class DataTaker():
                     return self.get(arg)
         else:
             iterator = dependants.split()
-            appender = lambda arg: self.get(arg)
+            if groupby:
+
+                def quantity_from_group(arg, groupby, key):
+                    quantity = self.get(arg, **{groupby: key})
+                    quantity.group = key
+                    return quantity
+
+                appender = lambda arg: [quantity_from_group(arg, groupby, key)
+                                        for key in self.raw_data.groupby(
+                                            groupby).indices]
+            else:
+                appender = lambda arg: self.get(arg)
 
         for arg in iterator:
             args.append(appender(arg))
 
-        commons = [self.get(common) for common in independants.split()]
+        if groupby:
+            commons = [[quantity_from_group(common, groupby, key)
+                        for key in self.raw_data.groupby(groupby).indices]
+                        for common in independants.split()]
+        else:
+            commons = [self.get(common) for common in independants.split()]
 
         plot(*args, commons=commons, **kwargs)
 
