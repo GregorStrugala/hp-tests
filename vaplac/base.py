@@ -59,19 +59,22 @@ class DataTaker():
     ureg.define('percent = 1e-2 frac = pct')
     ureg.define('ppm = 1e-6 fraction')
 
-    def __init__(self, filename=None, initialdir='heating-data',
+    def __init__(self, filenames=None, initialdir='.', filetype=None,
                  convert_file=None):
-        # assign read_file and raw_data attribute
-        self.read_file = self.read(filename, initialdir=initialdir)
+        self.raw_data = None
+        self.read_files = []
+        # assign read_file and raw_data attributes
+        self.read(filenames, initialdir=initialdir)
         # assign _name_converter attribute
         if convert_file is None:
             encoding = 'ANSI' if platform.system() == 'Windows' else 'UTF8'
             convert_file = f'name_conversions_{encoding}.txt'
         self._build_name_converter(convert_file)
         self.quantities = {}
+        self._groups = {}
 
     def __repr__(self):
-        return f'DataTaker({self.read_file})'
+        return f'DataTaker({self.read_files})'
 
     def _build_name_converter(self, filename):
         """
@@ -91,7 +94,7 @@ class DataTaker():
         nconv[nconv=='-'] = None
         self._name_converter = nconv
 
-    def read(self, filename=None, initialdir='heating-data'):
+    def read(self, paths=None, initialdir='.', filetype=None):
         """
         Read a data file and assign it to the raw_data attribute.
 
@@ -107,60 +110,90 @@ class DataTaker():
 
         """
 
-        if filename is None:
+        if filetype is not None:
+            filetype = filetype.lstrip('.').lower().replace('xlsx', 'excel')
+        if paths is None:
+            # Display default files based on the specified filetype
+            if filetype is None:
+                filetypes = (('All files', '.*'), ('CSV', '.csv'),
+                             ('Excel', '.xlsx'))
+            elif filetype.lower() in ('csv', '.csv'):
+                filetypes = (('CSV', '.csv'), ('All files', '.*'))
+            elif filetype.lower() in ('excel', 'xlsx', '.xlsx'):
+                filetypes = (('Excel', '.xlsx'), ('All files', '.*'))
             Tk().withdraw()  # remove tk window
             # Open dialog window in initialdir
-            filetypes=(('All files', '.*'),
-                       ('CSV', '.csv'),
-                       ('Excel', '.xlsx'))
-            filename = askopenfilename(initialdir=initialdir,
-                                       title='Select input file',
-                                       filetypes=filetypes)
-        # Return if the Cancel button is pressed
-        if filename in ((), ''):
-            return None
-
-        # Get the file type from the extension
-        _, ext = splitext(filename)
-        if ext.lower() == '.csv':
-            filetype = 'csv'
-        elif ext.lower() == '.xlsx':
-            filetype = 'excel'
-        else:
-            raise ValueError('invalid file extension')
-
-        # Check the file encoding:
-        with open(filename, encoding='UTF8') as f:
-            try:
-                next(f)
-            except UnicodeDecodeError:
-                encoding = 'ISO-8859-1'
+            paths = askopenfilenames(initialdir=initialdir,
+                                     title='Select input file',
+                                     filetypes=filetypes)
+            # Return if the Cancel button is pressed
+            if paths in ((), ''):
+                return None
+        elif paths == 'all':  # take every file in initialdir
+            filenames = listdir(initialdir)
+            if filetype is None:
+                paths = [f'{initialdir}/{filename}' for filename in filenames]
             else:
-                encoding = 'UTF8'
+                extension = filetype.replace('excel', 'xlsx')
+                if extension.lstrip('.') not in ('csv', 'xlsx'):
+                    raise ValueError('invalid file extension')
+                paths = [f'{initialdir}/{filename}' for filename in filenames
+                         if filename.lower().endswith(extension)]
+        elif isinstance(paths, str):  # only one path given
+            paths = [paths]
 
-        # Define the reader function according to the file type
-        call = 'read_' + filetype
-        # Read the first line
-        raw_data = getattr(pd, call)(filename, nrows=0, encoding=encoding)
+        def encoding(file):
+            """Check the encoding of a file."""
 
-        # Fetch the data
-        if any( word in list(raw_data)[0] for word in
-               ['load', 'aux', 'setpoint', '|', 'PdT'] ):
+            with open(file, encoding='UTF8') as f:
+                try:
+                    next(f)
+                except UnicodeDecodeError:
+                    return 'ISO-8859-1'
+                else:
+                    return 'UTF8'
 
-            # Print the test conditions
-            print('Test conditions :', list(raw_data)[0])
+        for i, path in enumerate(paths):
+            _, extension = splitext(path.lower())
+            if extension not in ('.csv', '.xlsx'):
+                raise ValueError('invalid file extension')
+            if filetype is None:
+                filetype = {'.csv':'csv', '.xlsx':'excel'}[extension]
+            # Define the reader function according to the file type
+            call = 'read_' + filetype
+            first_line = getattr(pd, call)(path,
+                                           nrows=0, encoding=encoding(path))
+            if any( word in list(first_line)[0] for word in
+                ['load', 'aux', 'setpoint', '|', 'PdT'] ):
+                # Print the test conditions if only one file
+                if len(paths) == 1:
+                    print('Test conditions :', list(first_line)[0])
+                # Skip the first row containing the conditions
+                raw_data = getattr(pd, call)(path, skiprows=1,
+                                             encoding=encoding(path))
+            else:
+                raw_data = getattr(pd, call)(path, encoding=encoding(path))
+            raw_data['Timestamp'] = pd.to_datetime(
+                raw_data['Timestamp']
+            ).apply(lambda t: t.round('s'))
+            start_timestamp = raw_data['Timestamp'].iloc[0]
+            stop_timestamp = raw_data['Timestamp'].iloc[-1]
+            test_duration = stop_timestamp - start_timestamp
+            start_time = start_timestamp.strftime('%d/%m %H:%M')
+            stop_time = stop_timestamp.strftime('{}%H:%M'.format(
+                '%d/%m ' if test_duration > pd.Timedelta('1 day') else '')
+            )
+            raw_data['file_index'] = i
+            raw_data['test_period'] = f'{start_time} - {stop_time}'
+            raw_data['test_duration'] = test_duration
+            if self.raw_data is None:
+                self.raw_data = raw_data
+            else:
+                self.raw_data = pd.concat([self.raw_data, raw_data],
+                                          sort=False).reset_index(drop=True)
+            self.read_files.append(basename(path))
 
-            # Skip the first row containing the conditions
-            self.raw_data = getattr(pd, call)(filename, skiprows=1,
-                                              encoding=encoding)
-        else:
-            self.raw_data = getattr(pd, call)(filename, encoding=encoding)
-        self.raw_data['Timestamp'] = pd.to_datetime(self.raw_data['Timestamp']
-                                                    ).apply(lambda t: t.round('s'))
-
-        return basename(filename)
-
-    def _build_quantities(self, *quantities, update=True):
+    def _build_quantities(self, *quantities, **kwargs):
         """
         Add quantities to the DataTaker's quantities attribute,
         optionally returning them as Quantity objects.
@@ -171,21 +204,17 @@ class DataTaker():
                        'Tamb', 'Tdtk', 'RHout','Tout_db', 'pin', 'pout',
                        'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
                        'Ptot', 'Qcond', 'Qev', 'Pcomp', 'flowrt_r', 't'}
-        update : boolean, default True
-            If set to False, quantities already present will not be
-            replaced.
 
         Example
         -------
         >>> dtk = vpa.DataTaker()
         >>> quantities = ('T1', 'T2', 'T3')
-        >>> T1, T2, T3 = dtk._build_quantities(*quantities, update=False)
+        >>> T1, T2, T3 = dtk._build_quantities(*quantities)
 
         """
 
         nconv = self._name_converter
-        stored_quantities = self.quantities.keys() if not update else {}
-        quantities = set(quantities) - set(stored_quantities)
+        quantities = set(quantities)
         # quantities are divided into 4 categories:
         #   humidity ratios,
         #   those whose magnitude require a bit of cleaning,
@@ -198,14 +227,18 @@ class DataTaker():
         enthalpies = quantities.intersection({f'h{i+1}' for i in range(9)})
         as_is = quantities - hum_ratios - to_clean - dependant - enthalpies
 
+        raw_data = self.raw_data
+        for key, value in kwargs.items():
+            raw_data = raw_data[raw_data[key] == value]
+
         if enthalpies or dependant - {'Pel', 't'}:
-            ref_dir = self.get('refdir')
+            ref_dir = self.get('refdir', **kwargs)
             # majority of 0 = heating, majority of 1 = cooling
             heating = np.count_nonzero(ref_dir) < len(ref_dir) / 2
 
         for w in hum_ratios:
-            T = self.get('T' + w.strip('w')).to('K').magnitude
-            RH = self.get('RH' + w.strip('w')).to('ratio').magnitude
+            T = self.get('T' + w.strip('w'), **kwargs).to('K').magnitude
+            RH = self.get('RH' + w.strip('w'), **kwargs).to('ratio').magnitude
             self.quantities[w] = self.Q_(
                 psychro('W', 'P', 101325, 'T', T, 'RH', RH),
                 label='$\omega_{' + w.strip('w') + '}$',
@@ -213,11 +246,8 @@ class DataTaker():
                 units='ratio'
             ).to('g/kg')
 
-        if not update and 'flowrt_r' in to_clean:
-            # Since update is False, flowrt_r is not in self.quantities
-            self._build_quantities('flowrt_r', update=True)
-        elif to_clean:
-            f = self.raw_data[nconv.loc['f', 'col_names']].values
+        if to_clean:
+            f = raw_data[nconv.loc['f', 'col_names']].values
             f[f == 'UnderRange'] = 0
             f = f.astype(float) / 2 # actual compressor frequency
             if 'f' in to_clean:
@@ -228,9 +258,7 @@ class DataTaker():
                     units=nconv.loc['f', 'units']
                 )
             if 'flowrt_r' in to_clean:
-                flowrt_r = self.raw_data[
-                    nconv.loc['flowrt_r', 'col_names']
-                ].values
+                flowrt_r = raw_data[nconv.loc['flowrt_r', 'col_names']].values
                 flowrt_r[f == 0] = 0
                 self.quantities['flowrt_r'] = self.Q_(
                     flowrt_r,
@@ -251,28 +279,28 @@ class DataTaker():
                     'Qev': 'pout T7 pin T4',
                     'Pcomp': 'pin T1 pout T2',
                     'Qloss_ev': 'pin T4 pin T1'}[quantity]
-            heat_params = self.get('flowrt_r ' + ref_states)
+            heat_params = self.get('flowrt_r ' + ref_states, **kwargs)
             pow_kW = self._heat(quantity, *heat_params).to('kW')
             self.quantities[quantity] = pow_kW
 
         if 'Pel' in dependant:
-            Pel = np.add(*self.get('Pa Pb'))
+            Pel = np.add(*self.get('Pa Pb', **kwargs))
             self.quantities['Pel'] = self.Q_(Pel.magnitude,
                                              label='$P_{el}$',
                                              prop='electrical power',
                                              units=Pel.units).to('kW')
 
         if 't' in dependant:
-            t0 = self.raw_data['Timestamp'][0]
-            t1 = self.raw_data['Timestamp'][1]
+            t0 = raw_data['Timestamp'].iloc[0]
+            t1 = raw_data['Timestamp'].iloc[1]
             timestep = t1 - t0
-            samples_number = len(self.raw_data.index)
+            samples_number = len(raw_data.index)
             time_in_seconds = np.arange(samples_number) * timestep.seconds
             self.quantities['t'] = self.Q_(time_in_seconds, 'seconds',
                                            label='$t$', prop='time')
 
         for quantity in as_is:
-            magnitude = self.raw_data[nconv.loc[quantity, 'col_names']].values
+            magnitude = raw_data[nconv.loc[quantity, 'col_names']].values
             self.quantities[quantity] = self.Q_(magnitude,
                 label=nconv.loc[quantity, 'labels'],
                 prop=nconv.loc[quantity, 'properties'],
@@ -288,7 +316,7 @@ class DataTaker():
                 pstate = 'out'
             else:
                 raise ValueError('The enthalpy state must be between 1 and 9.')
-            p, T = self.get(f'p{pstate} T{state}')
+            p, T = self.get(f'p{pstate} T{state}', **kwargs)
             h = properties('H', 'P', p.to('Pa').magnitude,
                            'T', T.to('K').magnitude, 'R410a')
             self.quantities[enthalpy] = self.Q_(h,
@@ -296,7 +324,7 @@ class DataTaker():
                                                 prop='enthalpy',
                                                 units='J/kg').to('kJ/kg')
 
-    def get(self, variables):
+    def get(self, variables, update=False, **kwargs):
         """
         Return specific quantities from a DataTaker as Quantity objects.
 
@@ -308,9 +336,11 @@ class DataTaker():
         ----------
         quantities : str with a combination of the following items,
                      separated by spaces
-                     {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts RHs ws Tr RHr wr Tin
-                     Tout Tamb Tdtk f RHout Tout_db refdir flowrt_r pin
-                      pout Pa Pb Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
+            {T1 T2 T3 T4 T5 T6 T7 T8 T9 Ts RHs ws Tr RHr wr Tin
+             Tout Tamb Tdtk f RHout Tout_db refdir flowrt_r pin
+             pout Pa Pb Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
+        update : boolean, default False
+            If set to True, quantities already present be replaced.
 
         Returns
         -------
@@ -326,6 +356,7 @@ class DataTaker():
 
         """
 
+        # update = True if kwargs else update
         spec_units = {}
         quantities = variables.split()
         for i, variable in enumerate(variables.split()):
@@ -333,18 +364,28 @@ class DataTaker():
                 quantity, unit = variable.split('/', 1)
                 quantities[i] = quantity
                 spec_units[quantity] = unit
-        # Only build quantities not already in the DataTaker's quantities
-        self._build_quantities(*(set(quantities) - set(self.quantities)))
-        # Return a Quantity if there is only one element in quantities
-        def update_units(quantities, quantity):
-            return self.quantities[quantity].to(spec_units.get(quantity))
-        if len(quantities) > 1:
-            return (update_units(self.quantities, quantity)
-                    for quantity in quantities)
+        if update or self._groups != kwargs:
+            self.quantities = {}
+            self._build_quantities(*set(quantities), **kwargs)
         else:
-            return update_units(self.quantities, quantities[0])
+            # Only build quantities not already in the DataTaker's quantities
+            self._build_quantities(*(set(quantities) - set(self.quantities)),
+                                   **kwargs)
+        self._groups = kwargs
 
-    def plot(self, dependants='all', independants='t/minutes', **kwargs):
+        def update_units(quantity):
+            return self.quantities[quantity].to(spec_units.get(quantity))
+
+        # Return a Quantity if there is only one element in quantities
+        if len(quantities) > 1:
+            return (update_units(quantity) for quantity in quantities)
+        else:
+            return update_units(quantities[0])
+
+        return result
+
+    def plot(self, dependants='all', independants='t/minutes', groupby=None,
+             **kwargs):
         """
         Plot DataTaker's quantities against time.
 
@@ -407,12 +448,28 @@ class DataTaker():
                     return self.get(arg)
         else:
             iterator = dependants.split()
-            appender = lambda arg: self.get(arg)
+            if groupby:
+
+                def quantity_from_group(arg, groupby, key):
+                    quantity = self.get(arg, **{groupby: key})
+                    quantity.group = key
+                    return quantity
+
+                appender = lambda arg: [quantity_from_group(arg, groupby, key)
+                                        for key in self.raw_data.groupby(
+                                            groupby).indices]
+            else:
+                appender = lambda arg: self.get(arg)
 
         for arg in iterator:
             args.append(appender(arg))
 
-        commons = [self.get(common) for common in independants.split()]
+        if groupby:
+            commons = [[quantity_from_group(common, groupby, key)
+                        for key in self.raw_data.groupby(groupby).indices]
+                        for common in independants.split()]
+        else:
+            commons = [self.get(common) for common in independants.split()]
 
         plot(*args, commons=commons, **kwargs)
 
