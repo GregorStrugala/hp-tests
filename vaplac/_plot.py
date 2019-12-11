@@ -13,20 +13,19 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
          legend=True, legend_args={'frameon':False}, plots_types=None,
          plots_args=None, scatter_args={'s':10}, line_args={}, **kwargs):
     """
-    Plot variables specified as arguments against time.
+    Plot given quantities, and easily create subplots.
 
     Parameters
     ----------
     *args : xpint Quantity, or list of xpint Quantity
         The quantities to be plotted. Quantities grouped in a list are
         plotted in the same axis.
-    commons : tuple of datetime array, xpint Quantity, or list, default None
+    commons : list of xpint Quantity default None
         Variable(s) against which the first arguments are plotted.
-        If 's', 'min', 'h' or 'day' is given, a minute timestep
-        is assumed by default and the axis is created to fit the length
-        of variables in `*args`.
-        (See `step` parameter to set another timestep.)
-        Alternatively, an explicit datetime or xpint array can be given.
+        If a list of lists of quantities is given, a 'groupby' plot
+        is assumed (see `groupby` argument in DataTaker.plot).
+        If None, the first argument in *args is taken by default.
+        Plotting only one quantity will raise an error.
     pos : 'abscissa' or 'ordinate', default 'abscissa'
         Axis on which the common variable should be displayed.
     sharex : bool or {'none', 'all', 'row', 'col'}, default 'col'
@@ -37,33 +36,48 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
         `sharey` in `matplotlib.pyplot.subplots` function).
     legend : bool, default True
         When set to False, no legend is displayed.
+    legend_args : dict, default {'frameon':False}
+        The keyword arguments used to customize the legend.
+    plots_types : list, default None
+        A nested list that allow to specify each plot subplot type
+        ('line' or 'scatter') individually. Each sublist element must be
+        either 'line', 'scatter' or None. The list must have a shape
+        corresponding to the subplots layout.
+    plots_args : list, default None
+        A nested list that allow to specify keyword arguments for each
+        subplot individually. All elements should be a dict, or None.
+        The list must have a shape corresponding to the subplots layout.
+    scatter_args : dict, default {'s':10}
+        Keyword arguments that are passed to all scatter plots, if any.
+    line_args : dict, default {}
+        Keyword arguments that are passed to all line plots, if any.
+    **kwargs
+        Any remaining keyword arguments will be passed to each subplot,
+        regardless of its type.
 
     Examples
     --------
-    Plot only one variable (say Tr):
+    Plot only two quantities against each other (say Tr and t):
 
-    >>> plot(Tr)
+    >>> plot(Tr, t)
 
-    Plot several variables (say Tr, Ts, f) without legend frame:
+    Group some quantities (say Tr, Ts) in the same axis, and plot them
+    against another (say f):
 
-    >>> plot(Tr, Ts, f, lf=False)
+    >>> plot(f, [Tr, Ts])
 
-    Group some variables (say Tr, Ts) in the same axis:
+    Specify several independent quantities (say t and f):
 
-    >>> plot([Tr, Ts], f)
-
-    Plot Tr quantity against Ts
-
-    >>> plot(Tr, common=Ts)
+    >>> plot(Tr, Ts, commons=[t, f])
 
     Plot Tr and Ts against Tout, with Tout as ordinate
 
-    >>> plot([Tr, Ts], common=Tout, pos='ordinate')
+    >>> plot([Tr, Ts], commons=[Tout], pos='ordinate')
 
     """
 
     if commons is None and len(args) < 2:
-        raise ValueError('At least two dependant variables must be provided.')
+        raise ValueError('At least two dependent variables must be provided.')
     elif commons is None:
         if isinstance(args[0], list):
             commons = [args[0][0]]

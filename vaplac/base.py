@@ -100,13 +100,18 @@ class DataTaker():
 
         Paramters
         ---------
-        filename : str, optional
-            The name of the file to read. If None is given, a dialog box
-            will open to select the file. Valid extensions are csv
-            (.csv) and excel (.xslx).
-        initialdir : str, default './Heating data'
+        paths : iterable of str or 'all', default None
+            An iterable with the paths of the files to read. When set to
+            'all', every file in initialdir is selected. If None
+            is given, a dialog box will ask to select the files.
+            Valid extensions are csv (.csv) and excel (.xlsx).
+        initialdir : str, default '.'
             a string with the path of the directory in which the dialog
             box will open if no filename is specified.
+        filetype : str, optional
+            Extension of files to use for plotting (csv or excel).
+            If not specified, files with both extension are used.
+            Useful when `paths` is either 'all' or None.
 
         """
 
@@ -222,16 +227,16 @@ class DataTaker():
         #   and those that can be taken 'as is'.
         hum_ratios = quantities.intersection({'ws', 'wr'})
         to_clean = quantities.intersection({'f', 'flowrt_r'})
-        dependant = quantities.intersection(
+        dependent = quantities.intersection(
             {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev', 't'})
         enthalpies = quantities.intersection({f'h{i+1}' for i in range(9)})
-        as_is = quantities - hum_ratios - to_clean - dependant - enthalpies
+        as_is = quantities - hum_ratios - to_clean - dependent - enthalpies
 
         raw_data = self.raw_data
         for key, value in kwargs.items():
             raw_data = raw_data[raw_data[key] == value]
 
-        if enthalpies or dependant - {'Pel', 't'}:
+        if enthalpies or dependent - {'Pel', 't'}:
             ref_dir = self.get('refdir', **kwargs)
             # majority of 0 = heating, majority of 1 = cooling
             heating = np.count_nonzero(ref_dir) < len(ref_dir) / 2
@@ -267,7 +272,7 @@ class DataTaker():
                     units=nconv.loc['flowrt_r', 'units']
                 )
 
-        for quantity in dependant - {'Pel', 't'}:
+        for quantity in dependent - {'Pel', 't'}:
             if heating:
                 ref_states = {
                     'Qcond': 'pout T4 pout T6',
@@ -283,14 +288,14 @@ class DataTaker():
             pow_kW = self._heat(quantity, *heat_params).to('kW')
             self.quantities[quantity] = pow_kW
 
-        if 'Pel' in dependant:
+        if 'Pel' in dependent:
             Pel = np.add(*self.get('Pa Pb', **kwargs))
             self.quantities['Pel'] = self.Q_(Pel.magnitude,
                                              label='$P_{el}$',
                                              prop='electrical power',
                                              units=Pel.units).to('kW')
 
-        if 't' in dependant:
+        if 't' in dependent:
             t0 = raw_data['Timestamp'].iloc[0]
             t1 = raw_data['Timestamp'].iloc[1]
             timestep = t1 - t0
@@ -340,7 +345,11 @@ class DataTaker():
              Tout Tamb Tdtk f RHout Tout_db refdir flowrt_r pin
              pout Pa Pb Pfan_out Pfan_in Ptot Qcond Qev Pcomp}
         update : boolean, default False
-            If set to True, quantities already present be replaced.
+            If set to True, quantities already present in the
+            `quantities` attribute will be overwritten.
+        **kwargs
+            Keyword arguments allow to return quantities corresponding
+            only to certain group in raw_data.
 
         Returns
         -------
@@ -353,6 +362,16 @@ class DataTaker():
 
         >>> properties = 'T1 T2 T3 T4 T5 T6 T7'
         >>> T1, T2, T3, T4, T5, T6, T7 = dtk.get(properties)
+
+        Get the properties only for the second specified file
+        (if at least two were specified):
+
+        >>> T4, pout = dtk.get('T4 pout', index_file=1)
+
+        Get the properties for a specific test period:
+
+        >>> period = '26/09 08:36 - 14:31'
+        >>> T4, pout = dtk.get('T4 pout', test_period=period)
 
         """
 
@@ -384,7 +403,7 @@ class DataTaker():
 
         return result
 
-    def plot(self, dependants='all', independants='t/minutes', groupby=None,
+    def plot(self, dependents='all', independents='t/minutes', groupby=None,
              **kwargs):
         """
         Plot DataTaker's quantities against time.
@@ -395,45 +414,61 @@ class DataTaker():
 
         Parameters
         ----------
-        quantities : {'all', 'allsplit', 'allmerge'} or str
-            All the quantities to be plotted, separated by a space.
-            Quantites to be plotted together must be grouped inside (),
-            [] or {}.
+        dependents : {'all', 'allsplit', 'allmerge'} or str, default 'all'
+            All the dependent quantities to be plotted, separated by a
+            space. Quantites to be plotted together must be grouped
+            inside (), [] or {}. A specific unit can also be given to a
+            quantity or a group, using the format quantity/unit.
+        independents : str, default 't/minutes'
+            All the independent quantities to be plotted, separated by a
+            space. Independent quantities cannot be grouped together, as
+            opposed to dependent ones.
+        groupby : str, default None
+            The groups that will be highlighted in the plots.
+            If not None, dependent quantities cannot be grouped.
         **kwargs : see function vaplac.plot.
 
-        Example
-        -------
+        Examples
+        --------
+        Unit specification rely on pint and is therefore really
+        felxible. For exemple, use teraelectronvolt per nanosecond
+        for power :
+
         >>> dtk = vpa.DataTaker()
-        >>> dtk.plot('(T1 T2) f')
+        >>> dtk.plot('(T1 T2) (Qev Qcond)/TeV/ns', 'f/rpm, t/hour')
+
+        Group by test period:
+
+        >>> dtk.plot('Qev Qcond', groupby='test_period')
 
         """
 
         # Store in a list the arguments to pass
         # to the datataker.plot method
         args = [] # parameters to pass to plot function
-        dependants = 'allmerge' if dependants == 'all' else dependants
+        dependents = 'allmerge' if dependents == 'all' else dependents
 
         # Define an iterator and an appender to add the right quantities
         # to the args list
-        if dependants == 'allsplit':
-            iterator = self.dependants.keys()
+        if dependents == 'allsplit':
+            iterator = self.dependents.keys()
             appender = lambda arg: self.get(arg)
-        elif dependants == 'allmerge':
+        elif dependents == 'allmerge':
             def gen():
-                # Group dependants by property
-                key = lambda q: self.dependants[q].prop
-                for _, prop in groupby(sorted(self.dependants, key=key), key):
+                # Group dependents by property
+                key = lambda q: self.dependents[q].prop
+                for _, prop in groupby(sorted(self.dependents, key=key), key):
                     # Yield a list in any case, the appender will take
                     # care of the cases with only one element
-                    yield [self.dependants[q] for q in prop]
+                    yield [self.dependents[q] for q in prop]
             iterator = gen()
             appender = lambda arg: arg[0] if len(arg) == 1 else arg
-        elif any(delim in dependants for delim in ('(', '[', '{')):
+        elif any(delim in dependents for delim in ('(', '[', '{')):
             # Split but keep grouped quantities together
             iterator = [arg.strip('()')
-                        for arg in re.findall(r'\([^\)]*\)|\S+', dependants)]
+                        for arg in re.findall(r'\([^\)]*\)|\S+', dependents)]
             # Distribute any unit specified over a group
-            if ')/' in dependants:
+            if ')/' in dependents:
                 for i, arg in enumerate(iterator):
                     if arg.startswith('/'):
                         unit = arg[1:]
@@ -447,7 +482,7 @@ class DataTaker():
                 else:
                     return self.get(arg)
         else:
-            iterator = dependants.split()
+            iterator = dependents.split()
             if groupby:
 
                 def quantity_from_group(arg, groupby, key):
@@ -467,9 +502,9 @@ class DataTaker():
         if groupby:
             commons = [[quantity_from_group(common, groupby, key)
                         for key in self.raw_data.groupby(groupby).indices]
-                        for common in independants.split()]
+                        for common in independents.split()]
         else:
-            commons = [self.get(common) for common in independants.split()]
+            commons = [self.get(common) for common in independents.split()]
 
         plot(*args, commons=commons, **kwargs)
 
