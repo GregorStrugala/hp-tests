@@ -93,6 +93,9 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
         err = "Parameter pos should be either 'abscissa' or 'ordinate'."
         raise ValueError(err)
 
+    if 's' in kwargs:
+        scatter_args['s'] = kwargs['s']
+
     warn_msg_dim = ('Quantities with different dimensionalities '
                     'are displayed on the same plot')
     warn_msg_unit = ('Quantities with different units '
