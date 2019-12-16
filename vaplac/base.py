@@ -72,6 +72,8 @@ class DataTaker():
         self._build_name_converter(convert_file)
         self.quantities = {}
         self._groups = {}
+        limits = np.array([-np.inf, 1, 30, 60, np.inf]) * self.ureg('min')
+        self.set_steady_state_limits(limits)
 
     def __repr__(self):
         return f'DataTaker({self.read_files})'
@@ -98,8 +100,8 @@ class DataTaker():
         """
         Read a data file and assign it to the raw_data attribute.
 
-        Paramters
-        ---------
+        Parameters
+        ----------
         paths : iterable of str or 'all', default None
             An iterable with the paths of the files to read. When set to
             'all', every file in initialdir is selected. If None
@@ -197,6 +199,30 @@ class DataTaker():
                 self.raw_data = pd.concat([self.raw_data, raw_data],
                                           sort=False).reset_index(drop=True)
             self.read_files.append(basename(path))
+
+    def get_timestep(self, kind='Timedelta'):
+        """
+        Return the duration between two consecutive data samples.
+
+        Parameter
+        ---------
+        as : 'Timedelta' or 'Quantity', default 'Timedelta'
+            Specifiy the type of the object returned.
+
+        Returns
+        -------
+        Pandas Timedelta, or Quantity
+
+        """
+
+        t0 = self.raw_data['Timestamp'].iloc[0]
+        t1 = self.raw_data['Timestamp'].iloc[1]
+        if kind == 'Timedelta':
+            return t1 - t0
+        elif kind == 'Quantity':
+            return (t1 - t0).seconds * self.ureg('seconds')
+        else:
+            raise ValueError("kind must be either 'Timedelta' or 'Quantity'.")
 
     def _build_quantities(self, *quantities, **kwargs):
         """
@@ -296,9 +322,7 @@ class DataTaker():
                                              units=Pel.units).to('kW')
 
         if 't' in dependent:
-            t0 = raw_data['Timestamp'].iloc[0]
-            t1 = raw_data['Timestamp'].iloc[1]
-            timestep = t1 - t0
+            timestep = self.get_timestep()
             samples_number = len(raw_data.index)
             time_in_seconds = np.arange(samples_number) * timestep.seconds
             self.quantities['t'] = self.Q_(time_in_seconds, 'seconds',
@@ -375,7 +399,6 @@ class DataTaker():
 
         """
 
-        # update = True if kwargs else update
         spec_units = {}
         quantities = variables.split()
         for i, variable in enumerate(variables.split()):
@@ -402,6 +425,62 @@ class DataTaker():
             return update_units(quantities[0])
 
         return result
+
+    @ureg.wraps(None, (None, ureg.second))
+    def set_steady_state_limits(self, limits):
+        """
+        Set the 'steady_state_time' column in raw_data according to the
+        provided limits.
+
+        Parameter
+        ---------
+        limits : Quantity with dimension [time]
+            The steady-state time levels used to group measurements.
+            To include measurements lower than the smallest value,
+            add -numpy.inf as first element.
+            To include measurements higher than the largest value,
+            add numpy.inf as last element.
+
+        Example
+        -------
+        >>> dtk = vaplac.DataTaker()
+        >>> limits = np.array([5, 10, 40, np.inf]) * dtk.ureg('min')
+        >>> dtk.set_steady_state_limits(limits)
+        >>> dtk.plot('Qcond Pel', 'Tr Tout', groupby='steady_state_time')
+
+        """
+
+        timestep = self.get_timestep().seconds
+        steady_state_time = self.steady_state_steps_number() * timestep
+        sst_bins = np.empty_like(steady_state_time, dtype=object)
+        include_lb = limits[0] == -np.inf
+        include_ub = limits[-1] == np.inf
+        if include_lb:
+            limits = limits[1:]
+        if include_ub:
+            limits = limits[:-1]
+        dimlimits = limits * self.ureg('s')
+        if limits[1] >= 60:
+            dimlimits.ito('minutes')
+
+        def lbound(bound):
+            return f'$\\tau_{{ss}} <$ {bound:.0f~P}'
+
+        def ubound(bound):
+            return f'$\\tau_{{ss}} \\geq$ {bound:.0f~P}'
+
+        def between(lbound, ubound):
+            return f'{lbound:.0f~P} $\\leq \\tau_{{ss}} <$ {ubound:.0f~P}'
+
+        for i, binidx in enumerate(np.digitize(steady_state_time, limits) - 1):
+            if binidx == -1:
+                sst_bins[i] = lbound(dimlimits[0]) if include_lb else None
+            elif binidx == len(limits) - 1:
+                sst_bins[i] = ubound(dimlimits[-1]) if include_ub else None
+            else:
+                sst_bins[i] = between(dimlimits[binidx], dimlimits[binidx+1])
+        self.raw_data['steady_state_time'] = sst_bins
+
 
     def plot(self, dependents='all', independents='t/minutes', groupby=None,
              **kwargs):
@@ -583,6 +662,44 @@ class DataTaker():
         return self.Q_(flow * (hout - hin) * (-1 if power == 'Qcond' else 1),
                        label=label, units='W', prop=prop)
 
+    @ureg.wraps(None, (None, ureg.hertzs))
+    def steady_state_steps_number(self, sd_limit=Q_('2 Hz')):
+        """
+        Return the number of time steps in steady-state.
+
+        Parameter
+        ---------
+        sd_limit : Quantity with dimension [1/time], default 2 Hz.
+            The standard deviation limit that the frequency should not exceed
+            in order to stay in steady-state regime.
+
+        Returns
+        -------
+        steps_number : ndarray
+            An array with the steady-state time interval of each measurement.
+
+        """
+
+        frequency = self.get('f').to('Hz').magnitude
+        mean = np.empty_like(frequency)
+        var = np.empty_like(frequency)
+        steps_number = np.empty_like(frequency)
+        mean[0] = frequency[0]
+        var[0] = 0
+        buffer = 1
+        for i, f in enumerate(frequency[1:]):
+            mean[i] = (buffer*mean[i-1] + f) / (buffer + 1)
+            var[i] = ((buffer*(var[i-1] + mean[i-1]**2) + f**2) / (buffer + 1)
+                      - mean[i]**2)
+            buffer = buffer + 1
+            if sqrt(var[i]) > sd_limit:  # standard deviation higher than 2 Hz
+                mean[i] = f
+                var[i] = 0
+                steps_number[i-buffer:i] = buffer
+                buffer = 0
+        steps_number[-buffer:] = buffer
+        return steps_number
+
     def validate(self, show_data=False):
         """
         Perform data checks implemented in vaplac.sauroneye.
@@ -593,8 +710,8 @@ class DataTaker():
         Parameters
         ----------
         show_data : boolean, default False
-            If set to True, the quantities involved in the checks resulting
-            in a warning are plotted.
+            If set to True, the quantities involved in the checks
+            resulting in a warning are plotted.
 
         Example
         -------
