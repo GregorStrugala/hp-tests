@@ -182,64 +182,63 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
         type_args = {'scatter': scatter_args, 'line': line_args}[plot_type]
         return plot_type, {**kwargs, **type_args, **plot_args}
 
-    for j, common in enumerate(commons):
-        for i, arg in enumerate(args):
-            row, col = ordered(i, j)
-            if isinstance(arg, list) and isinstance(common, list):
-                for grouped_arg, grouped_common in zip(arg, common):
-                    plot_type, plot_args = set_defaults(grouped_common,
-                                                        grouped_arg,
-                                                        row, col)
-                    call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
-                    plot_call = getattr(ax[row, col], call)
-                    plot_call(*ordered(grouped_common.magnitude,
-                                       grouped_arg.magnitude),
-                              label=grouped_arg.group,
-                              **plot_args)
-                fmt_coord = fmtr_wrap(common[0].prop, arg[0].prop,
-                                      common[0].units, arg[0].units)
+    def iterator(x, y):
+        """Iterator used to avoid a nested for loop."""
 
-            elif isinstance(arg, list):
-                for quantity in arg:
-                    plot_type, plot_args = set_defaults(common, quantity,
-                                                        row, col)
-                    call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
-                    plot_call = getattr(ax[row, col], call)
-                    plot_call(*ordered(common.magnitude, quantity.magnitude),
-                              label=quantity.label, **plot_args)
-                    if quantity.dimensionality != arg[0].dimensionality:
-                        warnings.warn(warn_msg_dim)
-                    if quantity.units != arg[0].units:
-                        warnings.warn(warn_msg_unit)
-                fmt_coord = fmtr_wrap(common.prop, arg[0].prop,
-                                      common.units, arg[0].units)
-                if legend and (j == 0 or j == len(commons) - 1):
-                    set_legend(ax[row, col], j)
-            else:
-                plot_type, plot_args = set_defaults(common, arg, row, col)
+        return (((i, xi), (j, yj)) for i, xi in enumerate(x)
+                                   for j, yj in enumerate(y))
+
+    for (j, common), (i, arg) in iterator(commons, args):
+        row, col = ordered(i, j)
+        if isinstance(arg, list) and isinstance(common, list):
+            for grouped_arg, grouped_common in zip(arg, common):
+                plot_type, plot_args = set_defaults(grouped_common, grouped_arg,
+                                                    row, col)
                 call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
                 plot_call = getattr(ax[row, col], call)
-                plot_call(*ordered(common.magnitude, arg.magnitude),
-                          **plot_args)
-                fmt_coord = fmtr_wrap(common.prop, arg.prop,
-                                      common.units, arg.units)
-            ax[row, col].format_coord = fmt_coord
+                plot_call(*ordered(grouped_common.magnitude,
+                                   grouped_arg.magnitude),
+                          label=grouped_arg.group, **plot_args)
+            fmt_coord = fmtr_wrap(common[0].prop, arg[0].prop,
+                                  common[0].units, arg[0].units)
+        elif isinstance(arg, list):
+            for quantity in arg:
+                plot_type, plot_args = set_defaults(common, quantity, row, col)
+                call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
+                plot_call = getattr(ax[row, col], call)
+                plot_call(*ordered(common.magnitude, quantity.magnitude),
+                          label=quantity.label, **plot_args)
+                if quantity.dimensionality != arg[0].dimensionality:
+                    warnings.warn(warn_msg_dim)
+                if quantity.units != arg[0].units:
+                    warnings.warn(warn_msg_unit)
+            fmt_coord = fmtr_wrap(common.prop, arg[0].prop,
+                                  common.units, arg[0].units)
+            if legend and (j == 0 or j == len(commons) - 1):
+                set_legend(ax[row, col], j)
+        else:
+            plot_type, plot_args = set_defaults(common, arg, row, col)
+            call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
+            plot_call = getattr(ax[row, col], call)
+            plot_call(*ordered(common.magnitude, arg.magnitude), **plot_args)
+            fmt_coord = fmtr_wrap(common.prop, arg.prop,
+                                  common.units, arg.units)
+        ax[row, col].format_coord = fmt_coord
 
-            if j == 0 and abscissa or j == len(commons) - 1 and ordinate:
-                if isinstance(arg, list) and isinstance(common, list):
-                    ax[row, col].set(**label(arg[-1], 'label'))
-                elif isinstance(arg, list):
-                    ax[row, col].set(**label(arg[-1], 'prop'))
-                else:
-                    ax[row, col].set(**label(arg, 'label'))
+        if j == 0 and abscissa or j == len(commons) - 1 and ordinate:
+            if isinstance(arg, list) and isinstance(common, list):
+                ax[row, col].set(**label(arg[-1], 'label'))
+            elif isinstance(arg, list):
+                ax[row, col].set(**label(arg[-1], 'prop'))
+            else:
+                ax[row, col].set(**label(arg, 'label'))
         row, col = ordered(0 if ordinate else len(args) - 1, j)
         if isinstance(common, list):
             ax[row, col].set(**label(common[-1], 'label', common=True))
         else:
             ax[row, col].set(**label(common, 'label', common=True))
     if legend and isinstance(commons[0], list):
-        new_entries = {'loc': 'lower left',
-                       'bbox_to_anchor': (0, 1)}
+        new_entries = {'loc': 'lower left', 'bbox_to_anchor': (0, 1)}
         legend_args.update(new_entries)
         ax[ordered(0, len(commons)-1)].legend(**legend_args)
         plt.tight_layout()
