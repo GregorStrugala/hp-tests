@@ -94,7 +94,7 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
         raise ValueError(err)
 
     if 's' in kwargs:
-        scatter_args['s'] = kwargs['s']
+        scatter_args['s'] = kwargs.pop('s')
 
     warn_msg_dim = ('Quantities with different dimensionalities '
                     'are displayed on the same plot')
