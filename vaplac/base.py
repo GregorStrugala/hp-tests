@@ -12,9 +12,7 @@ from tkinter.filedialog import askopenfilename, askopenfilenames
 import re
 import numpy as np
 import pandas as pd
-from pandas.plotting import register_matplotlib_converters
-register_matplotlib_converters()
-from math import floor, sqrt
+from math import sqrt
 
 from CoolProp.CoolProp import PropsSI as properties, PhaseSI as phase
 from CoolProp.HumidAirProp import HAPropsSI as psychro
