@@ -521,8 +521,8 @@ class DataTaker():
         """
 
         # Store in a list the arguments to pass
-        # to the datataker.plot method
-        args = [] # parameters to pass to plot function
+        # to the vaplac.plot function
+        args = []
         dependents = 'allmerge' if dependents == 'all' else dependents
 
         # Define an iterator and an appender to add the right quantities
