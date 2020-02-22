@@ -245,23 +245,31 @@ class DataTaker():
         nconv = self._name_converter
         quantities = set(quantities)
         # quantities are divided into 4 categories:
-        #   humidity ratios,
+        #   air humidity ratios,
+        #   refrigerant pressures,
+        #   refrigerant enthalpies,
+        #   refrigerant phases,
         #   those whose magnitude require a bit of cleaning,
         #   those depending upon other quantities to be computed,
-        #   and those that can be taken 'as is'.
+        #   and those that can be taken 'as is' from the raw data.
         hum_ratios = quantities.intersection({'ws', 'wr'})
+        pressures = quantities.intersection({f'p{i+1}' for i in range(9)})
+        enthalpies = quantities.intersection({f'h{i+1}' for i in range(9)})
+        phases = quantities.intersection({f'phase{i+1}' for i in range(9)})
         to_clean = quantities.intersection({'f', 'flowrt_r'})
         dependent = quantities.intersection(
             {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev', 't'})
-        enthalpies = quantities.intersection({f'h{i+1}' for i in range(9)})
-        as_is = quantities - hum_ratios - to_clean - dependent - enthalpies
+        as_is = (quantities - hum_ratios - pressures - enthalpies - phases
+                            - to_clean - dependent)
+        refstate_error = 'The refrigerant state must be between 1 and 9.'
 
         raw_data = self.raw_data
         for key, value in kwargs.items():
             raw_data = raw_data[raw_data[key] == value]
 
+        if enthalpies or dependent - {'Pel', 't'} or phases or pressures:
+            ref_dir = self.get('refdir', **kwargs).magnitude
         if enthalpies or dependent - {'Pel', 't'}:
-            ref_dir = self.get('refdir', **kwargs)
             # majority of 0 = heating, majority of 1 = cooling
             heating = np.count_nonzero(ref_dir) < len(ref_dir) / 2
 
@@ -274,6 +282,42 @@ class DataTaker():
                 prop='absolute humidity',
                 units='ratio'
             ).to('g/kg')
+
+        for pressure in pressures:
+            state = int(pressure.strip('p'))
+            if state in (1, 2):
+                p = self.get(f"p{'in' if state == 1 else 'out'}", **kwargs)
+            elif state in range(3, 10):
+                pin, pout= self.get(f'pin pout', **kwargs)
+                if state in (3, 4, 5, 6):
+                    p = pin * ref_dir + pout * (1-ref_dir)
+                else:
+                    p = pin * (1-ref_dir) + pout * ref_dir
+            else:
+                raise ValueError(refstate_error)
+            self.quantities[pressure] = self.Q_(p.to('kilopascal').magnitude,
+                                                label=f'$p_{state}$',
+                                                prop='pressure',
+                                                units='kPa')
+
+        for enthalpy in enthalpies:
+            state = int(enthalpy.strip('h'))
+            p, T = self.get(f"p{state} T{state}", **kwargs)
+            h = properties('H', 'P', p.to('pascal').magnitude,
+                                'T', T.to('kelvin').magnitude, 'R410a')
+            self.quantities[enthalpy] = self.Q_(h,
+                                                label=f'$h_{state}$',
+                                                prop='enthalpy',
+                                                units='J/kg').to('kJ/kg')
+
+        for ph in phases:
+            state = int(ph.strip('phase'))
+            pr = self.get(f'p{state}').to('pascal').magnitude
+            Tr = self.get(f'T{state}').to('kelvin').magnitude
+            self.quantities[ph] = self.Q_(
+                np.array([phase('P', p, 'T', T, 'R410a')
+                          for p, T in zip(pr, Tr)])
+            )
 
         if to_clean:
             f = raw_data[nconv.loc['f', 'col_names']].values
@@ -296,21 +340,50 @@ class DataTaker():
                     units=nconv.loc['flowrt_r', 'units']
                 )
 
+        ureg = self.ureg
+        @ureg.wraps(ureg.joules/ureg.kg,
+                    (ureg.joules/ureg.kg, None, None, ureg.Pa))
+        def fix_enthalpy(h, phase, expected_phase, pressure_level):
+            quality = {'gas': 1, 'liquid': 0}[expected_phase.lower()]
+            wrong_phase = phase != expected_phase
+            h[wrong_phase] = properties('H', 'P', pressure_level[wrong_phase],
+                                             'Q', quality, 'R410a')
+            return h
+
+        def split_props(p, states):
+            p_high, p_low = np.split(np.array(
+                [p.magnitude for p
+                 in self.get(' '.join(f'{p}{s}' for s in states), **kwargs)]
+                 ), 2
+            )
+            units = self.get(f'{p}{states[0]}').units
+            return self.Q_(p_high, units), self.Q_(p_low, units)
+
         for quantity in dependent - {'Pel', 't'}:
-            if heating:
-                ref_states = {
-                    'Qcond': 'pout T4 pout T6',
-                    'Qev': 'pout T6 pin T9',
-                    'Pcomp': 'pin T1 pout T2'}[quantity]
+            states = {'Qcond': [4, 2, 6, 7], 'Qev': [9, 4, 6, 7],
+                      'Pcomp': [2, 1], 'Qloss_ev': [1, 4]}[quantity]
+            h_high, h_low = split_props('h', states)
+            p_high, p_low = split_props('p', states)
+            phase_high, phase_low = split_props('phase', states)
+            fixed_h_high = fix_enthalpy(h_high, phase_high, 'gas', p_high)
+            ep_low = 'liquid' if quantity in {'Qcond', 'Qev'} else 'gas'
+            fixed_h_low = fix_enthalpy(h_low, phase_low, ep_low, p_low)
+            dh = h_high - h_low
+            if quantity in {'Qcond', 'Qev'}:
+                dh = ref_dir * dh[1] + (1 - ref_dir) * dh[0]
             else:
-                ref_states = {
-                    'Qcond': 'pout T9 pout T7',
-                    'Qev': 'pout T7 pin T4',
-                    'Pcomp': 'pin T1 pout T2',
-                    'Qloss_ev': 'pin T4 pin T1'}[quantity]
-            heat_params = self.get('flowrt_r ' + ref_states, **kwargs)
-            pow_kW = self._heat(quantity, *heat_params).to('kW')
-            self.quantities[quantity] = pow_kW
+                dh = dh[0] * (1 if quantity == 'Pcomp' else ref_dir)
+            Q = self.get('flowrt_r') * dh
+            label={'Qcond': '$ \\dot{Q}_{cond} $',
+                   'Qev': '$ \\dot{Q}_{ev} $',
+                   'Pcomp': '$ P_{comp} $',
+                   'Qloss_ev': '$ \\dot{Q}_{loss,ev} $'}[quantity]
+            prop = ('mechanical power' if quantity == 'Pcomp' else
+                    'heat transfer rate')
+            self.quantities[quantity] = self.Q_(Q.to('kW').magnitude,
+                                                units='kW',
+                                                label=label,
+                                                prop=prop)
 
         if 'Pel' in dependent:
             Pel = np.add(*self.get('Pa Pb', **kwargs))
@@ -333,23 +406,23 @@ class DataTaker():
                 prop=nconv.loc[quantity, 'properties'],
                 units=nconv.loc[quantity, 'units'])
 
-        for enthalpy in enthalpies:
-            state = int(enthalpy.strip('h'))
-            if (heating and state in (7, 8, 9, 1) or
-                not heating and state in (6, 5, 4, 3, 1)):
-                pstate = 'in'
-            elif (heating and state in range(2, 7) or
-                  not heating and state in (2, 9, 8, 7)):
-                pstate = 'out'
-            else:
-                raise ValueError('The enthalpy state must be between 1 and 9.')
-            p, T = self.get(f'p{pstate} T{state}', **kwargs)
-            h = properties('H', 'P', p.to('Pa').magnitude,
-                           'T', T.to('K').magnitude, 'R410a')
-            self.quantities[enthalpy] = self.Q_(h,
-                                                label=f'$h_{state}$',
-                                                prop='enthalpy',
-                                                units='J/kg').to('kJ/kg')
+        # for enthalpy in enthalpies:
+        #     state = int(enthalpy.strip('h'))
+        #     if (heating and state in (7, 8, 9, 1) or
+        #         not heating and state in (6, 5, 4, 3, 1)):
+        #         pstate = 'in'
+        #     elif (heating and state in range(2, 7) or
+        #           not heating and state in (2, 9, 8, 7)):
+        #         pstate = 'out'
+        #     else:
+        #         raise ValueError('The enthalpy state must be between 1 and 9.')
+        #     p, T = self.get(f'p{pstate} T{state}', **kwargs)
+        #     h = properties('H', 'P', p.to('Pa').magnitude,
+        #                    'T', T.to('K').magnitude, 'R410a')
+        #     self.quantities[enthalpy] = self.Q_(h,
+        #                                         label=f'$h_{state}$',
+        #                                         prop='enthalpy',
+        #                                         units='J/kg').to('kJ/kg')
 
     def get(self, variables, update=False, **kwargs):
         """
@@ -584,81 +657,6 @@ class DataTaker():
             commons = [self.get(common) for common in independents.split()]
 
         plot(*args, commons=commons, **kwargs)
-
-    @ureg.wraps(None, (None, None, ureg.kilogram/ureg.second,
-                       ureg.pascal, ureg.kelvin, ureg.pascal, ureg.kelvin))
-    def _heat(self, power, flow=None,
-              pin=None, Tin=None, pout=None, Tout=None):
-        """
-        Compute heat transfer rate from thermodynamic quantities.
-
-        All provided quantities must be (x)pint Quantity objects, with a
-        magnitude of the same length.
-
-        Parameters
-        ----------
-        power : {'Qcond', 'Qev', 'Pcomp'}
-            Property to be evaluated.
-        flow : Quantity
-            The mass flow rate of the fluid exchanging heat or work.
-        pin : Quantity
-            Inlet fluid pressure.
-        Tin : Quantity
-            Inlet fluid temperature.
-        pout : Quantity
-            Outlet fluid pressure.
-        Tout : Quantity
-            Outlet fluid temperature.
-
-        Returns
-        -------
-        Quantity
-            Mass flow rate multiplied by the enthalpy difference,
-            i.e. the heat transfer rate in watts.
-
-        """
-
-        # Get the enthalpies using CoolProp, in J/kg
-        hin = properties('H', 'P', pin, 'T', Tin, 'R410a')
-        hout = properties('H', 'P', pout, 'T', Tout, 'R410a')
-
-        # Check the phase, because points in and out may be
-        # on the wrong side of the saturation curve
-        phase_in = np.array([phase('P', p, 'T', T, 'R410a')
-                             for p, T in zip(pin, Tin)])
-        phase_out = np.array([phase('P', p, 'T', T, 'R410a')
-                              for p, T in zip(pout, Tout)])
-
-        # Assign the expected phases based on the specified property
-        exp_phase_in, exp_phase_out = {'Qcond': ('gas', 'liq'),
-                                       'Qev': ('liq', 'gas'),
-                                       'Pcomp': ('gas', 'gas'),
-                                       'Qloss_ev': ('gas', 'gas')}[power]
-        # Get quality based on expected phase
-        quality = {'liq':0, 'gas':1, None:None}
-
-        # Replace by saturated state enthalpy if not in the right phase
-        if not exp_phase_in in phase_in:
-            hin[phase_in != exp_phase_in] = properties(
-                'H', 'P', pin[phase_in != exp_phase_in],
-                'Q', quality[exp_phase_in], 'R410a'
-            )
-        if not exp_phase_out in phase_out:
-            hout[phase_out != exp_phase_out] = properties(
-                'H', 'P', pout[phase_out != exp_phase_out],
-                'Q', quality[exp_phase_out], 'R410a'
-            )
-
-        # Get the right attributes depending on the input property
-        label={'Qcond': '$\dot{Q}_{cond}$',
-               'Qev': '$\dot{Q}_{ev}$',
-               'Pcomp': '$P_{comp}$',
-               'Qloss_ev': '$\dot{Q}_{loss,ev}$'}[power]
-        prop = 'mechanical power' if power == 'Pcomp' else 'heat transfer rate'
-
-        # Return result in watts
-        return self.Q_(flow * (hout - hin) * (-1 if power == 'Qcond' else 1),
-                       label=label, units='W', prop=prop)
 
     @ureg.wraps(None, (None, ureg.hertzs))
     def steady_state_steps_number(self, sd_limit=Q_('2 Hz')):
