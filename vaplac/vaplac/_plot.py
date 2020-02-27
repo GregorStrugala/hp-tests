@@ -7,11 +7,14 @@ to easily produce formatted subplots from Quantity objects.
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from pandas import Timedelta, Interval
 import warnings
+from IPython.core.debugger import set_trace
 
-def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
+def plot(self, *args, commons=None, pos='abscissa', sharex='col', sharey='row',
          legend=True, legend_args={'frameon':False}, plots_types=None,
-         plots_args=None, scatter_args={'s':10}, line_args={}, **kwargs):
+         plots_args=None, scatter_args={'s':10}, line_args={}, colorbar=None,
+         **kwargs):
     """
     Plot given quantities, and easily create subplots.
 
@@ -103,20 +106,21 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
     warnings.simplefilter('always')
 
     properties = {  # Label used for Axes with several plots
-        'temperature':'$T$', 'electrical power':'$P$',
+        'temperature':'$T$', 'wet-bulb':'$T_{wb}$', 'electrical power':'$P$',
         'mechanical power':'$\dot{W}$','heat transfer rate':'$\dot{Q}$',
         'difference of internal energy rate of change':'$\Delta\dot U$',
         'flow rate':'$\dot{m}$', 'frequency':'$f$', 'pressure':'$p$',
         'specific enthalpy':'$h$', 'relative humidity':'$\phi$',
         'absolute humidity':'$\omega$', 'flow direction':'$\gamma$',
-        'relative error':'$\delta$', 'enthalpy':'$h$', 'time':'$t$'}
+        'relative error':'$\delta$', 'enthalpy':'$h$', 'time':'$t$',
+        'ratio': 'ratio'}
 
     def ordered(i, j):
         return (i,j) if abscissa else (j,i)
 
     # Create the figure and axis.
-    fig, ax = plt.subplots(*ordered(len(args), len(commons)),
-                           sharex=sharex, sharey=sharey,
+    nrows, ncols = ordered(len(args), len(commons))
+    fig, ax = plt.subplots(nrows, ncols, sharex=sharex, sharey=sharey,
                            squeeze=False, facecolor=(.93,.93,.93))
 
     def label(quantity, attribute, common=False):
@@ -132,7 +136,7 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
                'prop': properties[quantity.prop]}.get(attribute, '')
         # Cannot use Quantity().dimensionless in case of percentages
         if str(quantity.units) != 'dimensionless':
-            post = f' ({quantity.units:~P})'
+            post = f' / {quantity.units:~P}'
         else:
             post = ''
         axis = 'x' if common and abscissa or not (common or abscissa) else 'y'
@@ -190,15 +194,44 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
 
     for (j, common), (i, arg) in iterator(commons, args):
         row, col = ordered(i, j)
+        if colorbar is not None:
+            kwargs.update({'c': colorbar.magnitude})
         if isinstance(arg, list) and isinstance(common, list):
             for grouped_arg, grouped_common in zip(arg, common):
-                plot_type, plot_args = set_defaults(grouped_common, grouped_arg,
-                                                    row, col)
-                call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
-                plot_call = getattr(ax[row, col], call)
-                plot_call(*ordered(grouped_common.magnitude,
-                                   grouped_arg.magnitude),
-                          label=grouped_arg.group, **plot_args)
+                if grouped_arg.group:
+                    if colorbar is not None:
+                        glabel=None
+                    elif isinstance(grouped_arg.group, Interval):
+                        interval = grouped_arg.group
+                        lb, rb = interval.left, interval.right
+                        lbound = self.Q_(lb.seconds, 'seconds')
+                        rbound = self.Q_(rb.seconds, 'seconds')
+
+                        def update_units(*bounds):
+                            for bound in bounds:
+                                if bound.magnitude >= 60: bound.ito('minutes')
+
+                        if lb == Timedelta.min:
+                            update_units(rbound)
+                            glabel = f'$\\tau_{{ss}} <$ {rbound:.0f~P}'
+                        elif rb == Timedelta.max:
+                            update_units(lbound)
+                            if lbound.magnitude >= 60: lbound.ito('minutes')
+                            glabel = f'$\\tau_{{ss}} \\geq$ {lbound:.0f~P}'
+                        else:
+                            update_units(lbound, rbound)
+                            glabel = (f'{lbound:.0f~P} $\\leq \\tau_{{ss}} <$ '
+                                      f'{rbound:.0f~P}')
+                    else:
+                        glabel = grouped_arg.group
+                    plot_type, plot_args = set_defaults(grouped_common,
+                                                        grouped_arg,
+                                                        row, col)
+                    call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
+                    plot_call = getattr(ax[row, col], call)
+                    axplt = plot_call(*ordered(grouped_common.magnitude,
+                                               grouped_arg.magnitude),
+                                      label=glabel, **plot_args)
             fmt_coord = fmtr_wrap(common[0].prop, arg[0].prop,
                                   common[0].units, arg[0].units)
         elif isinstance(arg, list):
@@ -206,8 +239,9 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
                 plot_type, plot_args = set_defaults(common, quantity, row, col)
                 call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
                 plot_call = getattr(ax[row, col], call)
-                plot_call(*ordered(common.magnitude, quantity.magnitude),
-                          label=quantity.label, **plot_args)
+                axplt = plot_call(*ordered(common.magnitude,
+                                           quantity.magnitude),
+                                  label=quantity.label, **plot_args)
                 if quantity.dimensionality != arg[0].dimensionality:
                     warnings.warn(warn_msg_dim)
                 if quantity.units != arg[0].units:
@@ -220,7 +254,8 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
             plot_type, plot_args = set_defaults(common, arg, row, col)
             call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
             plot_call = getattr(ax[row, col], call)
-            plot_call(*ordered(common.magnitude, arg.magnitude), **plot_args)
+            axplt = plot_call(*ordered(common.magnitude, arg.magnitude),
+                              **plot_args)
             fmt_coord = fmtr_wrap(common.prop, arg.prop,
                                   common.units, arg.units)
         ax[row, col].format_coord = fmt_coord
@@ -237,8 +272,18 @@ def plot(*args, commons=None, pos='abscissa', sharex='col', sharey='row',
             ax[row, col].set(**label(common[-1], 'label', common=True))
         else:
             ax[row, col].set(**label(common, 'label', common=True))
+
     if legend and isinstance(commons[0], list):
         new_entries = {'loc': 'lower left', 'bbox_to_anchor': (0, 1)}
         legend_args.update(new_entries)
         ax[ordered(0, len(commons)-1)].legend(**legend_args)
-        plt.tight_layout()
+        if colorbar is None:
+            plt.tight_layout()
+
+    if colorbar is not None:
+        se = ax[-1, -1].get_position()  # south east plot
+        ne = ax[0, -1].get_position()  # north east plot
+        cax = fig.add_axes([se.x1 + 0.03, se.y0, 0.02, 0.9*(ne.y1 - se.y0)])
+        cbar = fig.colorbar(axplt, cax=cax, extend='max')
+        cax.set_xlabel(f'{colorbar.label} / {colorbar.units:~P}')
+        cax.xaxis.set_label_coords(1, 1/0.9)

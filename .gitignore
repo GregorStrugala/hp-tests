@@ -1,19 +1,23 @@
-# Ignore all data (.csv and .xlsx) files
+# ignore all data (.csv and .xlsx) files
 *.[cC][sS][vV]
 *.[xX][sS][lL][xX]
 heating-data/
 cooling-data/
 test/
 
-# Do not version control the notebooks
+# do not version control the notebooks
+notenooks/
 *.ipynb
 
-# Ignore automatically generated directories
+# ignore automatically generated directories
 __pycache__/
 .ipynb_checkpoints/
 
-# Ignore swap files when staging from Vim
+# ignore swap files when staging from Vim
 *.swp
 
-# Ignore PyCharm's .idea directory
+# ignore PyCharm's .idea directory
 .idea/
+
+# ignore Python Egg
+vaplac.egg-info/

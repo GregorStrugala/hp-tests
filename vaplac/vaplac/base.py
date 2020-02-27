@@ -5,7 +5,7 @@ to process, validate and visualize data.
 """
 
 import platform
-from os.path import splitext, basename
+from os.path import splitext, basename, dirname, realpath
 from itertools import groupby
 from tkinter import Tk
 from tkinter.filedialog import askopenfilename, askopenfilenames
@@ -19,7 +19,7 @@ from CoolProp.HumidAirProp import HAPropsSI as psychro
 from cerberus import Validator
 
 from ._plot import plot
-from xpint import UnitRegistry
+from vaplac.xpint import UnitRegistry
 from vaplac import sauroneye
 
 class DataTaker():
@@ -66,7 +66,8 @@ class DataTaker():
         # assign _name_converter attribute
         if convert_file is None:
             encoding = 'ANSI' if platform.system() == 'Windows' else 'UTF8'
-            convert_file = f'name_conversions_{encoding}.txt'
+            dir_path = dirname(realpath(__file__)) + '/..'
+            convert_file = f'{dir_path}/name_conversions_{encoding}.txt'
         self._build_name_converter(convert_file)
         self.quantities = {}
         self._groups = {}
@@ -229,10 +230,12 @@ class DataTaker():
 
         Parameters
         ----------
-        *quantities : {'T{1-9}', 'h{1-9}', 'Ts', 'Tr', 'Tin', 'Tout',
-                       'Tamb', 'Tdtk', 'RHout','Tout_db', 'pin', 'pout',
-                       'refdir', 'Pa', 'Pb', 'Pfan_out', 'f', 'Pfan_in',
-                       'Ptot', 'Qcond', 'Qev', 'Pcomp', 'flowrt_r', 't'}
+        *quantities : {'T{1-9}', 'h{1-9}', p{1-9}, phase{1-9}, 'Tin', 'Tout',
+                       'Ts', 'Tr', 'RHr', 'RHs', 'wr', 'ws', 'Twbr', 'Twbs',
+                       'hs', 'hx', 'hr', 'SHR', 'Tamb', 'Tdtk', 'pin', 'pout',
+                       'RHout','Tout_db', 'refdir', 'Pfan_out', 'Pfan_in',
+                       'Pa', 'Pb', 'Ptot', 'Qcond', 'Qev', 'Pcomp', 'Qc',
+                       'Qcs', 'Qcl', 'f', 't', 'flowrt_r'}
 
         Example
         -------
@@ -244,25 +247,29 @@ class DataTaker():
 
         nconv = self._name_converter
         quantities = set(quantities)
-        # quantities are divided into 4 categories:
+        # quantities are divided into 10 categories:
         #   air humidity ratios,
+        #   wet-bulb temperatures,
         #   refrigerant pressures,
         #   refrigerant enthalpies,
         #   refrigerant phases,
+        #   cooling capacities,
         #   those whose magnitude require a bit of cleaning,
         #   those depending upon other quantities to be computed,
         #   and those that can be taken 'as is' from the raw data.
-        hum_ratios = quantities.intersection({'ws', 'wr'})
-        pressures = quantities.intersection({f'p{i+1}' for i in range(9)})
-        enthalpies = quantities.intersection({f'h{i+1}' for i in range(9)})
-        phases = quantities.intersection({f'phase{i+1}' for i in range(9)})
-        to_clean = quantities.intersection({'f', 'flowrt_r'})
-        dependent = quantities.intersection(
-            {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev', 't'})
-        as_is = (quantities - hum_ratios - pressures - enthalpies - phases
-                            - to_clean - dependent)
+        hum_ratios = quantities & {'ws', 'wr'}
+        wet_bulbs = quantities & {'Twbs', 'Twbr'}
+        pressures = quantities & {f'p{i+1}' for i in range(9)}
+        enthalpies = (quantities
+                        & ({f'h{i+1}' for i in range(9)} | {'hr', 'hx', 'hs'}))
+        phases = quantities & {f'phase{i+1}' for i in range(9)}
+        to_clean = quantities & {'f', 'flowrt_r', 'RHr', 'RHs', 'SHR'}
+        dependent = (quantities &
+                            {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev', 't'})
+        cooling_cap = quantities & {'Qc', 'Qcs', 'Qcl'}
+        as_is = (quantities - hum_ratios - wet_bulbs - pressures - enthalpies
+                            - phases - to_clean - dependent - cooling_cap)
         refstate_error = 'The refrigerant state must be between 1 and 9.'
-
         raw_data = self.raw_data
         for key, value in kwargs.items():
             raw_data = raw_data[raw_data[key] == value]
@@ -273,15 +280,31 @@ class DataTaker():
             # majority of 0 = heating, majority of 1 = cooling
             heating = np.count_nonzero(ref_dir) < len(ref_dir) / 2
 
-        for w in hum_ratios:
-            T = self.get('T' + w.strip('w'), **kwargs).to('K').magnitude
-            RH = self.get('RH' + w.strip('w'), **kwargs).to('ratio').magnitude
-            self.quantities[w] = self.Q_(
-                psychro('W', 'P', 101325, 'T', T, 'RH', RH),
-                label='$\omega_{' + w.strip('w') + '}$',
-                prop='absolute humidity',
-                units='ratio'
-            ).to('g/kg')
+        for HR in hum_ratios:
+            hrstate = HR.strip('w')
+            T = self.get('T' + hrstate, **kwargs).to('kelvin').magnitude
+            RH = self.get('RH' + hrstate, **kwargs).to('ratio').magnitude
+            p = self.Q_('1 atm').to('pascal').magnitude
+            w = psychro('W', 'P', p, 'T', T, 'RH', RH)
+            if hrstate == 's':
+                wr = self.get('wr', **kwargs).to('kg/kg').magnitude
+                w = np.where(w < wr, w, wr)
+            self.quantities[HR] = self.Q_(w, label=f'$\omega_{{{hrstate}}}$',
+                                             prop='absolute humidity',
+                                             units='ratio').to('g/kg')
+
+        for WB in wet_bulbs:
+            wbstate = WB.strip('Twb')
+            T = self.get('T' + wbstate, **kwargs).to('kelvin').magnitude
+            RH = self.get('RH' + wbstate, **kwargs).to('ratio').magnitude
+            p = self.Q_('1 atm').to('pascal').magnitude
+            Twb = psychro('Twb', 'P', p, 'T', T, 'RH', RH)
+            if wbstate == 's':
+                Twbr = self.get('Twbr', **kwargs).to('kelvin').magnitude
+                Twb = np.where(Twb < Twbr, Twb, Twbr)
+            self.quantities[WB] = self.Q_(Twb, label=f'$T_{{wb{wbstate}}}$',
+                                               prop='wet-bulb',
+                                               units='kelvin').to('degC')
 
         for pressure in pressures:
             state = int(pressure.strip('p'))
@@ -301,10 +324,22 @@ class DataTaker():
                                                 units='kPa')
 
         for enthalpy in enthalpies:
-            state = int(enthalpy.strip('h'))
-            p, T = self.get(f"p{state} T{state}", **kwargs)
-            h = properties('H', 'P', p.to('pascal').magnitude,
-                                'T', T.to('kelvin').magnitude, 'R410a')
+            state = enthalpy.strip('h')
+            if state.isdigit():
+                p, T = self.get(f'p{state} T{state}', **kwargs)
+                h = properties('H', 'P', p.to('pascal').magnitude,
+                                    'T', T.to('kelvin').magnitude, 'R410a')
+            elif state == 'x':
+                (T, w), p = self.get(f'Tr ws', **kwargs), self.Q_('1 atm')
+                h = psychro('H', 'T', T.to('kelvin').magnitude,
+                                 'W', w.to('kg/kg').magnitude,
+                                 'P', p.to('pascal').magnitude)
+            else:
+                T, RH = self.get(f'T{state} RH{state}', **kwargs)
+                p = self.Q_('1 atm')
+                h = psychro('H', 'T', T.to('kelvin').magnitude,
+                                 'RH', RH.to('fraction').magnitude,
+                                 'P', p.to('pascal').magnitude)
             self.quantities[enthalpy] = self.Q_(h,
                                                 label=f'$h_{state}$',
                                                 prop='enthalpy',
@@ -312,14 +347,23 @@ class DataTaker():
 
         for ph in phases:
             state = int(ph.strip('phase'))
-            pr = self.get(f'p{state}').to('pascal').magnitude
-            Tr = self.get(f'T{state}').to('kelvin').magnitude
+            pr = self.get(f'p{state}', **kwargs).to('pascal').magnitude
+            Tr = self.get(f'T{state}', **kwargs).to('kelvin').magnitude
             self.quantities[ph] = self.Q_(
                 np.array([phase('P', p, 'T', T, 'R410a')
                           for p, T in zip(pr, Tr)])
             )
 
-        if to_clean:
+        for quantity in to_clean & {'RHr', 'RHs'}:
+            RH = raw_data[nconv.loc[quantity, 'col_names']].values
+            RH[RH < 0] = 0
+            RH[RH > 100] = 100
+            self.quantities[quantity] = self.Q_(RH,
+                label=nconv.loc[quantity, 'labels'],
+                prop=nconv.loc[quantity, 'properties'],
+                units=nconv.loc[quantity, 'units'])
+
+        if to_clean - {'RHr', 'RHs', 'SHR'}:
             f = raw_data[nconv.loc['f', 'col_names']].values
             f[f == 'UnderRange'] = 0
             f = f.astype(float) / 2 # actual compressor frequency
@@ -340,6 +384,14 @@ class DataTaker():
                     units=nconv.loc['flowrt_r', 'units']
                 )
 
+        if 'SHR' in to_clean:
+            hr = self.get('hr/kJ/kg', **kwargs).magnitude
+            hx = self.get('hx/kJ/kg', **kwargs).magnitude
+            hs = self.get('hs/kJ/kg', **kwargs).magnitude
+            SHR = np.where(hr > hs, (hx - hs) / (hr - hs), 1)
+            SHR[SHR < 0] = 0
+            self.quantities['SHR'] = self.Q_(SHR, label='SHR', prop='ratio')
+
         ureg = self.ureg
         @ureg.wraps(ureg.joules/ureg.kg,
                     (ureg.joules/ureg.kg, None, None, ureg.Pa))
@@ -350,14 +402,14 @@ class DataTaker():
                                              'Q', quality, 'R410a')
             return h
 
-        def split_props(p, states):
-            p_high, p_low = np.split(np.array(
+        def split_props(q, states):
+            q_high, q_low = np.split(np.array(
                 [p.magnitude for p
-                 in self.get(' '.join(f'{p}{s}' for s in states), **kwargs)]
+                 in self.get(' '.join(f'{q}{s}' for s in states), **kwargs)]
                  ), 2
             )
-            units = self.get(f'{p}{states[0]}').units
-            return self.Q_(p_high, units), self.Q_(p_low, units)
+            units = self.get(f'{q}{states[0]}').units
+            return self.Q_(q_high, units), self.Q_(q_low, units)
 
         for quantity in dependent - {'Pel', 't'}:
             states = {'Qcond': [4, 2, 6, 7], 'Qev': [9, 4, 6, 7],
@@ -373,7 +425,7 @@ class DataTaker():
                 dh = ref_dir * dh[1] + (1 - ref_dir) * dh[0]
             else:
                 dh = dh[0] * (1 if quantity == 'Pcomp' else ref_dir)
-            Q = self.get('flowrt_r') * dh
+            Q = self.get('flowrt_r', **kwargs) * dh
             label={'Qcond': '$ \\dot{Q}_{cond} $',
                    'Qev': '$ \\dot{Q}_{ev} $',
                    'Pcomp': '$ P_{comp} $',
@@ -399,30 +451,30 @@ class DataTaker():
             self.quantities['t'] = self.Q_(time_in_seconds, 'seconds',
                                            label='$t$', prop='time')
 
+        if cooling_cap:
+            Qev, Pfan_in = self.get('Qev Pfan_in', **kwargs)
+            Qc = (Qev - Pfan_in).to('kW').magnitude
+            for Q in cooling_cap:
+                sub = Q.replace('Qc', '').lower()
+                if sub:  # compute SHR only if needed
+                    SHR = self.get('SHR', **kwargs).magnitude
+                SLfactor = {'s': SHR, 'l': 1 - SHR}.get(sub) if sub else 1
+                self.quantities[Q] = self.Q_(Qc * SLfactor, units='kW',
+                                             label=f'$\\dot Q_{{c{sub}}}$',
+                                             prop='heat transfer rate')
+
         for quantity in as_is:
-            magnitude = raw_data[nconv.loc[quantity, 'col_names']].values
+            try:
+                magnitude = raw_data[nconv.loc[quantity, 'col_names']].values
+            except KeyError:
+                if quantity == 'Pfan_in':
+                    magnitude = raw_data['Indoor Unit Fan Power (kW)'].values
+                else:
+                    raise
             self.quantities[quantity] = self.Q_(magnitude,
                 label=nconv.loc[quantity, 'labels'],
                 prop=nconv.loc[quantity, 'properties'],
                 units=nconv.loc[quantity, 'units'])
-
-        # for enthalpy in enthalpies:
-        #     state = int(enthalpy.strip('h'))
-        #     if (heating and state in (7, 8, 9, 1) or
-        #         not heating and state in (6, 5, 4, 3, 1)):
-        #         pstate = 'in'
-        #     elif (heating and state in range(2, 7) or
-        #           not heating and state in (2, 9, 8, 7)):
-        #         pstate = 'out'
-        #     else:
-        #         raise ValueError('The enthalpy state must be between 1 and 9.')
-        #     p, T = self.get(f'p{pstate} T{state}', **kwargs)
-        #     h = properties('H', 'P', p.to('Pa').magnitude,
-        #                    'T', T.to('K').magnitude, 'R410a')
-        #     self.quantities[enthalpy] = self.Q_(h,
-        #                                         label=f'$h_{state}$',
-        #                                         prop='enthalpy',
-        #                                         units='J/kg').to('kJ/kg')
 
     def get(self, variables, update=False, **kwargs):
         """
@@ -523,38 +575,32 @@ class DataTaker():
 
         timestep = self.get_timestep().seconds
         steady_state_time = self.steady_state_steps_number() * timestep
-        sst_bins = np.empty_like(steady_state_time, dtype=object)
         include_lb = limits[0] == -np.inf
         include_ub = limits[-1] == np.inf
-        if include_lb:
-            limits = limits[1:]
-        if include_ub:
-            limits = limits[:-1]
-        dimlimits = limits * self.ureg('s')
-        if limits[1] >= 60:
-            dimlimits.ito('minutes')
+        nb = len(limits) - 1
 
-        def lbound(bound):
-            return f'$\\tau_{{ss}} <$ {bound:.0f~P}'
-
-        def ubound(bound):
-            return f'$\\tau_{{ss}} \\geq$ {bound:.0f~P}'
-
-        def between(lbound, ubound):
-            return f'{lbound:.0f~P} $\\leq \\tau_{{ss}} <$ {ubound:.0f~P}'
-
-        for i, binidx in enumerate(np.digitize(steady_state_time, limits) - 1):
-            if binidx == -1:
-                sst_bins[i] = lbound(dimlimits[0]) if include_lb else None
-            elif binidx == len(limits) - 1:
-                sst_bins[i] = ubound(dimlimits[-1]) if include_ub else None
+        def to_timedelta(limit):
+            if limit == np.inf:
+                return pd.Timedelta.max
+            elif limit == -np.inf:
+                return pd.Timedelta.min
             else:
-                sst_bins[i] = between(dimlimits[binidx], dimlimits[binidx+1])
+                return pd.Timedelta(f'00:00:{limit}')
+
+        def get_interval(limits, i):
+            closed = 'neither' if i == 0 and include_lb else 'left'
+            return pd.Interval(limits[i], limits[i+1], closed=closed)
+
+        timedelta_limits = [to_timedelta(limit) for limit in limits]
+        bins = [get_interval(timedelta_limits, i) for i in range(nb)]
+        sst_bins = np.empty_like(steady_state_time, dtype=object)
+        for i, binidx in enumerate(np.digitize(steady_state_time, limits) - 1):
+            out_of_bounds = binidx == nb and not include_ub or binidx == -1
+            sst_bins[i] = None if out_of_bounds else bins[binidx]
         self.raw_data['steady_state_time'] = sst_bins
 
-
     def plot(self, dependents='all', independents='t/minutes', groupby=None,
-             **kwargs):
+             colorbar=None, **kwargs):
         """
         Plot DataTaker's quantities against time.
 
@@ -597,6 +643,7 @@ class DataTaker():
         # to the vaplac.plot function
         args = []
         dependents = 'allmerge' if dependents == 'all' else dependents
+        colorbar_quantity = None
 
         # Define an iterator and an appender to add the right quantities
         # to the args list
@@ -640,9 +687,9 @@ class DataTaker():
                     quantity.group = key
                     return quantity
 
+                groupby_indices = self.raw_data.groupby(groupby).indices
                 appender = lambda arg: [quantity_from_group(arg, groupby, key)
-                                        for key in self.raw_data.groupby(
-                                            groupby).indices]
+                                        for key in groupby_indices]
             else:
                 appender = lambda arg: self.get(arg)
 
@@ -651,12 +698,20 @@ class DataTaker():
 
         if groupby:
             commons = [[quantity_from_group(common, groupby, key)
-                        for key in self.raw_data.groupby(groupby).indices]
+                        for key in groupby_indices]
                         for common in independents.split()]
+            if colorbar:
+                if len(groupby_indices) > 1:
+                    err_msg = 'colorbar cannot be set with more than one group.'
+                    raise ValueError(err_msg)
+                key = list(groupby_indices.keys())[0]
+                colorbar_quantity = self.get(colorbar, **{groupby:key})
         else:
+            if colorbar:
+                colorbar_quantity = self.get(colorbar)
             commons = [self.get(common) for common in independents.split()]
 
-        plot(*args, commons=commons, **kwargs)
+        plot(self, *args, commons=commons, colorbar=colorbar_quantity, **kwargs)
 
     @ureg.wraps(None, (None, ureg.hertzs))
     def steady_state_steps_number(self, sd_limit=Q_('2 Hz')):
