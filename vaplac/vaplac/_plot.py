@@ -229,8 +229,7 @@ def plot(self, *args, commons=None, pos='abscissa', sharex='col', sharey='row',
                                                         row, col)
                     call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
                     plot_call = getattr(ax[row, col], call)
-                    axplt = plot_call(*ordered(grouped_common.magnitude,
-                                               grouped_arg.magnitude),
+                    axplt = plot_call(*ordered(grouped_common.m, grouped_arg.m),
                                       label=glabel, **plot_args)
             fmt_coord = fmtr_wrap(common[0].prop, arg[0].prop,
                                   common[0].units, arg[0].units)
@@ -239,8 +238,7 @@ def plot(self, *args, commons=None, pos='abscissa', sharex='col', sharey='row',
                 plot_type, plot_args = set_defaults(common, quantity, row, col)
                 call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
                 plot_call = getattr(ax[row, col], call)
-                axplt = plot_call(*ordered(common.magnitude,
-                                           quantity.magnitude),
+                axplt = plot_call(*ordered(common.m, quantity.m),
                                   label=quantity.label, **plot_args)
                 if quantity.dimensionality != arg[0].dimensionality:
                     warnings.warn(warn_msg_dim)
@@ -254,8 +252,7 @@ def plot(self, *args, commons=None, pos='abscissa', sharex='col', sharey='row',
             plot_type, plot_args = set_defaults(common, arg, row, col)
             call = {'line': 'plot', 'scatter': 'scatter'}[plot_type]
             plot_call = getattr(ax[row, col], call)
-            axplt = plot_call(*ordered(common.magnitude, arg.magnitude),
-                              **plot_args)
+            axplt = plot_call(*ordered(common.m, arg.m), **plot_args)
             fmt_coord = fmtr_wrap(common.prop, arg.prop,
                                   common.units, arg.units)
         ax[row, col].format_coord = fmt_coord

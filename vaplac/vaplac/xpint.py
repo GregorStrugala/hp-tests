@@ -47,25 +47,72 @@ class _Quantity(pint.quantity._Quantity):
 
     def __new__(cls, value, units=None, prop=None, label=None):
         self = super().__new__(cls, value, units)
-        self.prop=prop
-        self.label=label
+        self._prop = prop
+        self._label = label
+        self._name = {'prop': prop, 'label': label}
+
         return self
+
+
+    @property
+    def prop(self):
+        return self._prop
+
+    @property
+    def label(self):
+        return self._label
+
+    @property
+    def name(self):
+        return self._name
+
+    def set_prop(self, prop):
+        self._prop = prop
+        self._name['prop'] = prop
+
+    def set_label(self, label):
+        self._label = label
+        self._name['label'] = label
+
+    def set_name(self, prop=None, label=None):
+        self.set_prop(prop or self._prop)
+        self.set_label(label or self._label)
 
     def to(self, other=None, *contexts, **ctx_kwargs):
         """Keep the values of `prop` and `label` after a conversion."""
         if other is None:
-            return self.__class__(self.magnitude, units=self.units,
-                                  prop=self.prop, label=self.label)
+            return self.__class__(self._magnitude, units=self._units,
+                                  prop=self._prop, label=self._label)
         else:
             quantity = super().to(other, *contexts, **ctx_kwargs)
-            return self.__class__(quantity.magnitude, units=quantity.units,
-                                  prop=self.prop, label=self.label)
+            return self.__class__(quantity._magnitude, units=quantity._units,
+                                  prop=self._prop, label=self._label)
 
-    def name(self, prop=None, label=None):
-        """Shortcut to set `prop` and `label` attributes on one line"""
-        self.prop = prop if prop is not None else self.prop
-        self.label = label if label is not None else self.label
+    def __getitem__(self, key):
+        """Keep the values of `prop` and `label` when indexing."""
+        try:
+            return type(self)(self._magnitude[key], self._units, **self._name)
+        except pint.errors.PintTypeError:
+            raise
+        except TypeError:
+            raise TypeError(
+                "Neither Quantity object nor its magnitude ({})"
+                "supports indexing".format(self._magnitude)
+            )
 
+    def __iter__(self):
+        """Keep the values of `prop` and `label` when iterating."""
+
+        # Make sure that, if self.magnitude is not iterable,
+        # we raise TypeError as soon as one calls iter(self)
+        # without waiting for the first element to be drawn from the iterator.
+        it_magnitude = iter(self.magnitude)
+
+        def it_outer():
+            for element in it_magnitude:
+                yield self.__class__(element, self._units, **self._name)
+
+        return it_outer()
 
     def clean(self):
         """Replace UnderRange values by zero and divide by two."""
@@ -73,24 +120,24 @@ class _Quantity(pint.quantity._Quantity):
             raise Exception(('This function only applies to a Quantity'
                              ' whose magnitude dtype is \'O\''))
         self[self.magnitude == 'UnderRange'] = self.__class__(0, 'Hz')
-        return self.__class__(self.astype(float)/2, units=self.units,
-                              prop=self.prop, label=self.label)
+        return self.__class__(self.astype(float)/2, units=self._units,
+                              **self._name)
 
     def info(self, index=slice(0, None)):
         """Display the min, max and mean values of the quantity."""
         # Specify the property
         if self.dimensionless:
-            if self.prop is None:
+            if self._prop is None:
                 print('dimensionless quantity', '\n')
             else:
-                print(self.prop, '(dimensionless quantity)', '\n')
+                print(self._prop, '(dimensionless quantity)', '\n')
 
         else:
-            if self.prop is None:
+            if self._prop is None:
                 print('Unspecified property',
-                      f'(with units {self.units})', '\n')
+                      f'(with units {self._units})', '\n')
             else:
-                print(self.prop, '\n')
+                print(self._prop, '\n')
 
         def fmt(q):
             """Return the number to display with its char number."""
@@ -221,8 +268,7 @@ class _Quantity(pint.quantity._Quantity):
         # print(movsum_refl)
         movsum[:l] = movsum_refl[:l]
         movsum[-l:] = movsum_refl[-l-1:-1]
-        return self.__class__(movsum / n, self.units,
-                              label=self.label, prop=self.prop)
+        return self.__class__(movsum / n, self.units, **self._name)
 
 def build_quantity_class(registry, force_ndarray=False):
     """Build a Quantity class from a registry, subclassing _Quantity"""

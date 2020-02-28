@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from math import sqrt
 
-from CoolProp.CoolProp import PropsSI as properties, PhaseSI as phase
+from CoolProp.CoolProp import PropsSI as refproperties, PhaseSI as phase
 from CoolProp.HumidAirProp import HAPropsSI as psychro
 from cerberus import Validator
 
@@ -58,7 +58,7 @@ class DataTaker():
     ureg.define('ppm = 1e-6 fraction')
 
     def __init__(self, filenames=None, initialdir='.', filetype=None,
-                 convert_file=None):
+                 convert_file=None, refrigerant='R410a'):
         self.raw_data = None
         self.read_files = []
         # assign read_file and raw_data attributes
@@ -73,6 +73,7 @@ class DataTaker():
         self._groups = {}
         limits = np.array([-np.inf, 1, 30, 60, np.inf]) * self.ureg('min')
         self.set_steady_state_limits(limits)
+        self._refrigerant = refrigerant
 
     def __repr__(self):
         return f'DataTaker({self.read_files})'
@@ -245,6 +246,9 @@ class DataTaker():
 
         """
 
+        def properties(*args):
+            return refproperties(*args, self._refrigerant)
+
         nconv = self._name_converter
         quantities = set(quantities)
         # quantities are divided into 10 categories:
@@ -274,6 +278,8 @@ class DataTaker():
         for key, value in kwargs.items():
             raw_data = raw_data[raw_data[key] == value]
 
+        p_atm = self.Q_('1 atm')
+
         if enthalpies or dependent - {'Pel', 't'} or phases or pressures:
             ref_dir = self.get('refdir', **kwargs).magnitude
         if enthalpies or dependent - {'Pel', 't'}:
@@ -282,12 +288,11 @@ class DataTaker():
 
         for HR in hum_ratios:
             hrstate = HR.strip('w')
-            T = self.get('T' + hrstate, **kwargs).to('kelvin').magnitude
-            RH = self.get('RH' + hrstate, **kwargs).to('ratio').magnitude
-            p = self.Q_('1 atm').to('pascal').magnitude
-            w = psychro('W', 'P', p, 'T', T, 'RH', RH)
+            T, RH = self.get(f'T{hrstate} RH{hrstate}', **kwargs)
+            p = p_atm.m_as('pascal')
+            w = psychro('W', 'P', p, 'T', T.m_as('K'), 'RH', RH.m_as('ratio'))
             if hrstate == 's':
-                wr = self.get('wr', **kwargs).to('kg/kg').magnitude
+                wr = self.get('wr', **kwargs).m_as('kg/kg')
                 w = np.where(w < wr, w, wr)
             self.quantities[HR] = self.Q_(w, label=f'$\omega_{{{hrstate}}}$',
                                              prop='absolute humidity',
@@ -295,16 +300,15 @@ class DataTaker():
 
         for WB in wet_bulbs:
             wbstate = WB.strip('Twb')
-            T = self.get('T' + wbstate, **kwargs).to('kelvin').magnitude
-            RH = self.get('RH' + wbstate, **kwargs).to('ratio').magnitude
-            p = self.Q_('1 atm').to('pascal').magnitude
-            Twb = psychro('Twb', 'P', p, 'T', T, 'RH', RH)
+            T, RH = self.get(f'T{wbstate} RH{wbstate}', **kwargs)
+            p = p_atm.m_as('pascal')
+            Twb = psychro('Twb', 'P', p, 'T', T.m_as('K'),
+                                         'RH', RH.m_as('ratio'))
             if wbstate == 's':
-                Twbr = self.get('Twbr', **kwargs).to('kelvin').magnitude
+                Twbr = self.get('Twbr', **kwargs).m_as('kelvin')
                 Twb = np.where(Twb < Twbr, Twb, Twbr)
-            self.quantities[WB] = self.Q_(Twb, label=f'$T_{{wb{wbstate}}}$',
-                                               prop='wet-bulb',
-                                               units='kelvin').to('degC')
+            self.quantities[WB] = self.Q_(Twb, units='kelvin').to('degC')
+            self.quantities[WB].set_name('wet-bulb', f'$T_{{wb{wbstate}}}$')
 
         for pressure in pressures:
             state = int(pressure.strip('p'))
@@ -318,39 +322,31 @@ class DataTaker():
                     p = pin * (1-ref_dir) + pout * ref_dir
             else:
                 raise ValueError(refstate_error)
-            self.quantities[pressure] = self.Q_(p.to('kilopascal').magnitude,
-                                                label=f'$p_{state}$',
-                                                prop='pressure',
-                                                units='kPa')
+            self.quantities[pressure] = self.Q_(p.m_as('kPa'), units='kPa')
+            self.quantities[pressure].set_name('pressure', f'$p_{state}$')
 
         for enthalpy in enthalpies:
             state = enthalpy.strip('h')
             if state.isdigit():
                 p, T = self.get(f'p{state} T{state}', **kwargs)
-                h = properties('H', 'P', p.to('pascal').magnitude,
-                                    'T', T.to('kelvin').magnitude, 'R410a')
+                h = properties('H', 'P', p.m_as('Pa'), 'T', T.m_as('K'))
             elif state == 'x':
                 (T, w), p = self.get(f'Tr ws', **kwargs), self.Q_('1 atm')
-                h = psychro('H', 'T', T.to('kelvin').magnitude,
-                                 'W', w.to('kg/kg').magnitude,
-                                 'P', p.to('pascal').magnitude)
+                h = psychro('H', 'T', T.m_as('K'), 'W', w.m_as('kg/kg'), 'P',
+                                 'P', p.m_as('pascal'))
             else:
                 T, RH = self.get(f'T{state} RH{state}', **kwargs)
-                p = self.Q_('1 atm')
-                h = psychro('H', 'T', T.to('kelvin').magnitude,
-                                 'RH', RH.to('fraction').magnitude,
-                                 'P', p.to('pascal').magnitude)
-            self.quantities[enthalpy] = self.Q_(h,
-                                                label=f'$h_{state}$',
-                                                prop='enthalpy',
-                                                units='J/kg').to('kJ/kg')
+                h = psychro('H', 'T', T.m_as('K'), 'RH', RH.m_as('ratio'),
+                                 'P', p_atm.m_as('pascal'))
+            self.quantities[enthalpy] = self.Q_(h, units='J/kg').to('kJ/kg')
+            self.quantities[enthalpy].set_name('enthalpy', f'$h_{state}$')
 
         for ph in phases:
             state = int(ph.strip('phase'))
             pr = self.get(f'p{state}', **kwargs).to('pascal').magnitude
             Tr = self.get(f'T{state}', **kwargs).to('kelvin').magnitude
             self.quantities[ph] = self.Q_(
-                np.array([phase('P', p, 'T', T, 'R410a')
+                np.array([phase('P', p, 'T', T, self._refrigerant)
                           for p, T in zip(pr, Tr)])
             )
 
@@ -399,15 +395,13 @@ class DataTaker():
             quality = {'gas': 1, 'liquid': 0}[expected_phase.lower()]
             wrong_phase = phase != expected_phase
             h[wrong_phase] = properties('H', 'P', pressure_level[wrong_phase],
-                                             'Q', quality, 'R410a')
+                                             'Q', quality)
             return h
 
         def split_props(q, states):
-            q_high, q_low = np.split(np.array(
-                [p.magnitude for p
-                 in self.get(' '.join(f'{q}{s}' for s in states), **kwargs)]
-                 ), 2
-            )
+            quantities = self.get(' '.join(f'{q}{s}' for s in states), **kwargs)
+            magnitudes = [quantity.magnitude for quantity in quantities]
+            q_high, q_low = np.split(np.array(magnitudes), 2)
             units = self.get(f'{q}{states[0]}').units
             return self.Q_(q_high, units), self.Q_(q_low, units)
 
@@ -432,28 +426,24 @@ class DataTaker():
                    'Qloss_ev': '$ \\dot{Q}_{loss,ev} $'}[quantity]
             prop = ('mechanical power' if quantity == 'Pcomp' else
                     'heat transfer rate')
-            self.quantities[quantity] = self.Q_(Q.to('kW').magnitude,
-                                                units='kW',
-                                                label=label,
-                                                prop=prop)
+            self.quantities[quantity] = self.Q_(Q.m_as('kW'), units='kW')
+            self.quantities[quantity].set_name(prop, label)
 
         if 'Pel' in dependent:
             Pel = np.add(*self.get('Pa Pb', **kwargs))
-            self.quantities['Pel'] = self.Q_(Pel.magnitude,
-                                             label='$P_{el}$',
-                                             prop='electrical power',
-                                             units=Pel.units).to('kW')
+            self.quantities['Pel'] = self.Q_(Pel.m, units=Pel.units).to('kW')
+            self.quantities['Pel'].set_name('electrical power', '$P_{el}$')
 
         if 't' in dependent:
             timestep = self.get_timestep()
             samples_number = len(raw_data.index)
             time_in_seconds = np.arange(samples_number) * timestep.seconds
-            self.quantities['t'] = self.Q_(time_in_seconds, 'seconds',
+            self.quantities['t'] = self.Q_(time_in_seconds, units='seconds',
                                            label='$t$', prop='time')
 
         if cooling_cap:
             Qev, Pfan_in = self.get('Qev Pfan_in', **kwargs)
-            Qc = (Qev - Pfan_in).to('kW').magnitude
+            Qc = (Qev - Pfan_in).m_as('kW')
             for Q in cooling_cap:
                 sub = Q.replace('Qc', '').lower()
                 if sub:  # compute SHR only if needed
@@ -731,7 +721,7 @@ class DataTaker():
 
         """
 
-        frequency = self.get('f').to('Hz').magnitude
+        frequency = self.get('f').m_as('Hz')
         mean = np.empty_like(frequency)
         var = np.empty_like(frequency)
         steps_number = np.empty_like(frequency)
