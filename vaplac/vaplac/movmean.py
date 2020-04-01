@@ -24,6 +24,9 @@ def movmean(a, n):
 
     """
 
+    if n < 2:
+        raise ValueError('window length must be at least 2.')
+
     # Increment n if it is even
     n += 1 if n % 2 == 0 else 0
     l = (n-1) // 2  # edge length

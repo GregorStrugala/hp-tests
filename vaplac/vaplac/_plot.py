@@ -9,9 +9,9 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from pandas import Timedelta, Interval
 import warnings
-from IPython.core.debugger import set_trace
 
-def plot(self, *args, commons=None, pos='abscissa', sharex='col', sharey='row',
+
+def _plot(self, *args, commons=None, pos='abscissa', sharex='col', sharey='row',
          legend=True, legend_args={'frameon':False}, plots_types=None,
          plots_args=None, scatter_args={'s':10}, line_args={}, colorbar=None,
          **kwargs):
@@ -204,19 +204,21 @@ def plot(self, *args, commons=None, pos='abscissa', sharex='col', sharey='row',
                     elif isinstance(grouped_arg.group, Interval):
                         interval = grouped_arg.group
                         lb, rb = interval.left, interval.right
-                        lbound = self.Q_(lb.seconds, 'seconds')
-                        rbound = self.Q_(rb.seconds, 'seconds')
+                        lbound = self.Q_(lb.seconds + lb.days*86400, 'seconds')
+                        rbound = self.Q_(rb.seconds + rb.days*86400, 'seconds')
 
                         def update_units(*bounds):
                             for bound in bounds:
-                                if bound.magnitude >= 60: bound.ito('minutes')
+                                for time_units in ('days', 'hours', 'minutes'):
+                                    if bound.m_as(time_units) >= 1:
+                                        bound.ito(time_units)
+                                        break
 
                         if lb == Timedelta.min:
                             update_units(rbound)
                             glabel = f'$\\tau_{{ss}} <$ {rbound:.0f~P}'
                         elif rb == Timedelta.max:
                             update_units(lbound)
-                            if lbound.magnitude >= 60: lbound.ito('minutes')
                             glabel = f'$\\tau_{{ss}} \\geq$ {lbound:.0f~P}'
                         else:
                             update_units(lbound, rbound)

@@ -13,12 +13,13 @@ import re
 import numpy as np
 import pandas as pd
 from math import sqrt
+from copy import deepcopy
 
 from CoolProp.CoolProp import PropsSI as refproperties, PhaseSI as phase
 from CoolProp.HumidAirProp import HAPropsSI as psychro
 from cerberus import Validator
 
-from ._plot import plot
+from ._plot import _plot
 from vaplac.xpint import UnitRegistry
 from vaplac import sauroneye
 
@@ -58,25 +59,55 @@ class DataTaker():
     ureg.define('ppm = 1e-6 fraction')
 
     def __init__(self, filenames=None, initialdir='.', filetype=None,
-                 convert_file=None, refrigerant='R410a'):
-        self.raw_data = None
-        self.read_files = []
-        # assign read_file and raw_data attributes
-        self.read(filenames, initialdir=initialdir)
-        # assign _name_converter attribute
+                 convert_file=None, mode=None, refrigerant='R410a'):
+
         if convert_file is None:
             encoding = 'ANSI' if platform.system() == 'Windows' else 'UTF8'
             dir_path = dirname(realpath(__file__)) + '/..'
             convert_file = f'{dir_path}/name_conversions_{encoding}.txt'
+        # assign _name_converter attribute
         self._build_name_converter(convert_file)
+        self.raw_data = None
+        self.read_files = []
+        self.test_settings = None
+        # assign read_file and raw_data attributes
+        self.read(filenames, initialdir=initialdir, filetype=filetype, mode=mode)
         self.quantities = {}
         self._groups = {}
+        self._set_timestep(kind='Quantity')
+        self._set_timestep(kind='Timedelta')
+        self._refrigerant = refrigerant
         limits = np.array([-np.inf, 1, 30, 60, np.inf]) * self.ureg('min')
         self.set_steady_state_limits(limits)
-        self._refrigerant = refrigerant
+
+    def get_timestep(self, kind='Timedelta'):
+        if kind not in ('Timedelta', 'Quantity'):
+            raise ValueError("kind must be either 'Timedelta' or 'Quantity'.")
+        return self._timestep_qt if kind == 'Quantity' else self._timestep_td
 
     def __repr__(self):
-        return f'DataTaker({self.read_files})'
+        return (f'DataTaker({self.read_files})\n\n'
+                f'Test settings: {self.test_settings}')
+
+    def mean(self, col):
+        """
+        Average the raw values on intervals where adjacent elements of col are
+        equal.
+
+        Parameters
+        ----------
+        col : {steady_state_time, Nss}
+            The name of the column used to determine the intervals to compute
+            the means.
+
+        """
+        dtk = deepcopy(self)
+        rd = dtk.raw_data
+        adjacent = (rd[col] != rd[col].shift()).cumsum()
+        dtk.raw_data = rd.groupby([col, adjacent],
+                          as_index=False, sort=False).mean()
+        dtk.quantities = {}
+        return dtk
 
     def _build_name_converter(self, filename):
         """
@@ -96,7 +127,8 @@ class DataTaker():
         nconv[nconv=='-'] = None
         self._name_converter = nconv
 
-    def read(self, paths=None, initialdir='.', filetype=None):
+    def read(self, paths=None, initialdir='.', filetype=None, mode=None,
+             overwrite=False):
         """
         Read a data file and assign it to the raw_data attribute.
 
@@ -114,6 +146,11 @@ class DataTaker():
             Extension of files to use for plotting (csv or excel).
             If not specified, files with both extension are used.
             Useful when `paths` is either 'all' or None.
+        mode : {'heating', 'cooling'}, default None
+            If specified, only values of the given mode are kept.
+        overwrite : bool, default False
+            If set to True, the read data will replace the data already present
+            in the DataTaker, instead of appending it.
 
         """
 
@@ -160,26 +197,62 @@ class DataTaker():
                 else:
                     return 'UTF8'
 
+        def get_specific_mode_values(data, mode):
+            col_name = self._name_converter.loc['refdir', 'col_names']
+            valid_rows = data[col_name] == {'heating': 0, 'cooling': 1}[mode]
+            return data[valid_rows].reset_index(drop=True)
+
+        if overwrite:
+            self.raw_data = None
+            self.quantities = {}
         for i, path in enumerate(paths):
             _, extension = splitext(path.lower())
             if extension not in ('.csv', '.xlsx'):
                 raise ValueError('invalid file extension')
             if filetype is None:
-                filetype = {'.csv':'csv', '.xlsx':'excel'}[extension]
+                ftype = {'.csv':'csv', '.xlsx':'excel'}[extension]
             # Define the reader function according to the file type
-            call = 'read_' + filetype
+            call = 'read_' + ftype
             first_line = getattr(pd, call)(path,
                                            nrows=0, encoding=encoding(path))
             if any( word in list(first_line)[0] for word in
                 ['load', 'aux', 'setpoint', '|', 'PdT'] ):
                 # Print the test conditions if only one file
                 if len(paths) == 1:
-                    print('Test conditions :', list(first_line)[0])
+                    self.test_settings = list(first_line)[0]
                 # Skip the first row containing the conditions
                 raw_data = getattr(pd, call)(path, skiprows=1,
                                              encoding=encoding(path))
             else:
-                raw_data = getattr(pd, call)(path, encoding=encoding(path))
+                try:
+                    raw_data = getattr(pd, call)(path, encoding=encoding(path))
+                except pd.errors.ParserError as e:
+                    if str(e).startswith('Error tokenizing data. C error:'):
+                        new_err_msg = f'{e}\nTest file: {path}'
+                        raise pd.errors.ParserError(new_err_msg)
+                    else:
+                        raise e
+
+            # Clean frequency values
+            f_col_name = self._name_converter.loc['f', 'col_names']
+            try:
+                f = raw_data[f_col_name]
+            except KeyError as e:
+                if str(e) == "'FREQ raw (Hz)'":
+                    try:
+                        f_col_name = 'Compressor Frequency'
+                        f = raw_data[f_col_name]
+                    except KeyError:
+                        raise e
+                else:
+                    raise e
+            raw_data.loc[(raw_data[f_col_name] == 'UnderRange'), f_col_name] = 0
+            raw_data[f_col_name] = raw_data[f_col_name].astype(float) / 2
+
+            # Clean refrigerant flow rate values
+            flow_col_name = self._name_converter.loc['flowrt_r', 'col_names']
+            raw_data.loc[raw_data[f_col_name] == 0, flow_col_name] = 0
+
             raw_data['Timestamp'] = pd.to_datetime(
                 raw_data['Timestamp']
             ).apply(lambda t: t.round('s'))
@@ -193,6 +266,11 @@ class DataTaker():
             raw_data['file_index'] = i
             raw_data['test_period'] = f'{start_time} - {stop_time}'
             raw_data['test_duration'] = test_duration
+            old_f_label, new_f_label = 'Compressor Frequency', 'FREQ raw (Hz)'
+            if (old_f_label in raw_data and new_f_label not in raw_data):
+                raw_data = raw_data.rename(columns={old_f_label: new_f_label})
+            if mode is not None:
+                raw_data = get_specific_mode_values(raw_data, mode)
             if self.raw_data is None:
                 self.raw_data = raw_data
             else:
@@ -200,13 +278,13 @@ class DataTaker():
                                           sort=False).reset_index(drop=True)
             self.read_files.append(basename(path))
 
-    def get_timestep(self, kind='Timedelta'):
+    def _set_timestep(self, kind='Timedelta'):
         """
         Return the duration between two consecutive data samples.
 
         Parameter
         ---------
-        as : 'Timedelta' or 'Quantity', default 'Timedelta'
+        kind : 'Timedelta' or 'Quantity', default 'Timedelta'
             Specifiy the type of the object returned.
 
         Returns
@@ -218,11 +296,23 @@ class DataTaker():
         t0 = self.raw_data['Timestamp'].iloc[0]
         t1 = self.raw_data['Timestamp'].iloc[1]
         if kind == 'Timedelta':
-            return t1 - t0
+            self._timestep_td = t1 - t0
         elif kind == 'Quantity':
-            return (t1 - t0).seconds * self.ureg('seconds')
+            self._timestep_qt = (t1 - t0).seconds * self.ureg('seconds')
         else:
             raise ValueError("kind must be either 'Timedelta' or 'Quantity'.")
+
+    def _array_to_slice(self, interval):
+        if isinstance(interval, self.Q_):
+            if not isinstance(interval.m, np.ndarray):
+                interval = self.Q_([0, interval.m], interval.units)
+            dt = self.get_timestep('Quantity')
+            sl_args = interval.m_as('s') / dt.m_as('s')
+            return slice(*(int(sl_arg) for sl_arg in sl_args))
+        elif isinstance(interval, pd.Timedelta):
+            return slice(0, int(interval / self.get_timestep('Timedelta')))
+        else:
+            raise TypeError('argument must be of type Timdelta of Quantity.')
 
     def _build_quantities(self, *quantities, **kwargs):
         """
@@ -251,6 +341,7 @@ class DataTaker():
 
         nconv = self._name_converter
         quantities = set(quantities)
+        if not quantities: return
         # quantities are divided into 10 categories:
         #   air humidity ratios,
         #   wet-bulb temperatures,
@@ -267,18 +358,24 @@ class DataTaker():
         enthalpies = (quantities
                         & ({f'h{i+1}' for i in range(9)} | {'hr', 'hx', 'hs'}))
         phases = quantities & {f'phase{i+1}' for i in range(9)}
-        to_clean = quantities & {'f', 'flowrt_r', 'RHr', 'RHs', 'SHR'}
+        to_clean = quantities & {'RHr', 'RHs', 'SHR'}
         dependent = (quantities &
                             {'Qcond', 'Qev', 'Pcomp', 'Pel', 'Qloss_ev', 't'})
         cooling_cap = quantities & {'Qc', 'Qcs', 'Qcl'}
         as_is = (quantities - hum_ratios - wet_bulbs - pressures - enthalpies
                             - phases - to_clean - dependent - cooling_cap)
+
         refstate_error = 'The refrigerant state must be between 1 and 9.'
-        raw_data = self.raw_data
+        p_atm = self.Q_('1 atm')
+
+        interval = kwargs.pop('interval', slice(None))
+        if not isinstance(interval, slice):
+            interval = self._array_to_slice(interval)
+        raw_data = self.raw_data.iloc[interval, :]
         for key, value in kwargs.items():
             raw_data = raw_data[raw_data[key] == value]
-
-        p_atm = self.Q_('1 atm')
+        if interval != slice(None):
+            kwargs['interval'] = interval
 
         if enthalpies or dependent - {'Pel', 't'} or phases or pressures:
             ref_dir = self.get('refdir', **kwargs).magnitude
@@ -329,10 +426,14 @@ class DataTaker():
             state = enthalpy.strip('h')
             if state.isdigit():
                 p, T = self.get(f'p{state} T{state}', **kwargs)
-                h = properties('H', 'P', p.m_as('Pa'), 'T', T.m_as('K'))
+                if p.size != 0:
+                    h = properties('H', 'P', p.m_as('Pa'), 'T', T.m_as('K'))
+                else:
+                    h = np.array([])
             elif state == 'x':
                 (T, w), p = self.get(f'Tr ws', **kwargs), self.Q_('1 atm')
-                h = psychro('H', 'T', T.m_as('K'), 'W', w.m_as('kg/kg'), 'P',
+
+                h = psychro('H', 'T', T.m_as('K'), 'W', w.m_as('kg/kg'),
                                  'P', p.m_as('pascal'))
             else:
                 T, RH = self.get(f'T{state} RH{state}', **kwargs)
@@ -343,8 +444,8 @@ class DataTaker():
 
         for ph in phases:
             state = int(ph.strip('phase'))
-            pr = self.get(f'p{state}', **kwargs).to('pascal').magnitude
-            Tr = self.get(f'T{state}', **kwargs).to('kelvin').magnitude
+            pr = self.get(f'p{state}', **kwargs).m_as('pascal')
+            Tr = self.get(f'T{state}', **kwargs).m_as('kelvin')
             self.quantities[ph] = self.Q_(
                 np.array([phase('P', p, 'T', T, self._refrigerant)
                           for p, T in zip(pr, Tr)])
@@ -358,27 +459,6 @@ class DataTaker():
                 label=nconv.loc[quantity, 'labels'],
                 prop=nconv.loc[quantity, 'properties'],
                 units=nconv.loc[quantity, 'units'])
-
-        if to_clean - {'RHr', 'RHs', 'SHR'}:
-            f = raw_data[nconv.loc['f', 'col_names']].values
-            f[f == 'UnderRange'] = 0
-            f = f.astype(float) / 2 # actual compressor frequency
-            if 'f' in to_clean:
-                self.quantities['f'] = self.Q_(
-                    f,
-                    label=nconv.loc['f', 'labels'],
-                    prop=nconv.loc['f', 'properties'],
-                    units=nconv.loc['f', 'units']
-                )
-            if 'flowrt_r' in to_clean:
-                flowrt_r = raw_data[nconv.loc['flowrt_r', 'col_names']].values
-                flowrt_r[f == 0] = 0
-                self.quantities['flowrt_r'] = self.Q_(
-                    flowrt_r,
-                    label=nconv.loc['flowrt_r', 'labels'],
-                    prop=nconv.loc['flowrt_r', 'properties'],
-                    units=nconv.loc['flowrt_r', 'units']
-                )
 
         if 'SHR' in to_clean:
             hr = self.get('hr/kJ/kg', **kwargs).magnitude
@@ -394,15 +474,17 @@ class DataTaker():
         def fix_enthalpy(h, phase, expected_phase, pressure_level):
             quality = {'gas': 1, 'liquid': 0}[expected_phase.lower()]
             wrong_phase = phase != expected_phase
-            h[wrong_phase] = properties('H', 'P', pressure_level[wrong_phase],
-                                             'Q', quality)
+            if np.any(wrong_phase) and pressure_level.size != 0:
+                h[wrong_phase] = properties('H',
+                                            'P', pressure_level[wrong_phase],
+                                            'Q', quality)
             return h
 
         def split_props(q, states):
             quantities = self.get(' '.join(f'{q}{s}' for s in states), **kwargs)
             magnitudes = [quantity.magnitude for quantity in quantities]
             q_high, q_low = np.split(np.array(magnitudes), 2)
-            units = self.get(f'{q}{states[0]}').units
+            units = self.get(f'{q}{states[0]}', **kwargs).units
             return self.Q_(q_high, units), self.Q_(q_low, units)
 
         for quantity in dependent - {'Pel', 't'}:
@@ -519,6 +601,11 @@ class DataTaker():
                 quantity, unit = variable.split('/', 1)
                 quantities[i] = quantity
                 spec_units[quantity] = unit
+
+        interval = kwargs.pop('interval', slice(None))
+        if not isinstance(interval, slice):
+            interval = self._array_to_slice(interval)
+        kwargs['interval'] = interval
         if update or self._groups != kwargs:
             self.quantities = {}
             self._build_quantities(*set(quantities), **kwargs)
@@ -564,7 +651,8 @@ class DataTaker():
         """
 
         timestep = self.get_timestep().seconds
-        steady_state_time = self.steady_state_steps_number() * timestep
+        Nss = self.steady_state_steps_number()
+        steady_state_time = Nss * timestep
         include_lb = limits[0] == -np.inf
         include_ub = limits[-1] == np.inf
         nb = len(limits) - 1
@@ -577,20 +665,21 @@ class DataTaker():
             else:
                 return pd.Timedelta(f'00:00:{limit}')
 
-        def get_interval(limits, i):
+        def get_interval(td_limits, i):
             closed = 'neither' if i == 0 and include_lb else 'left'
-            return pd.Interval(limits[i], limits[i+1], closed=closed)
+            return pd.Interval(td_limits[i], td_limits[i+1], closed=closed)
 
         timedelta_limits = [to_timedelta(limit) for limit in limits]
         bins = [get_interval(timedelta_limits, i) for i in range(nb)]
         sst_bins = np.empty_like(steady_state_time, dtype=object)
-        for i, binidx in enumerate(np.digitize(steady_state_time, limits) - 1):
-            out_of_bounds = binidx == nb and not include_ub or binidx == -1
-            sst_bins[i] = None if out_of_bounds else bins[binidx]
+        for i, binidx in enumerate(np.digitize(steady_state_time, limits)):
+            out_of_bounds = binidx == nb + 1 or binidx == 0
+            sst_bins[i] = None if out_of_bounds else bins[binidx - 1]
         self.raw_data['steady_state_time'] = sst_bins
+        self.raw_data['Nss'] = Nss
 
     def plot(self, dependents='all', independents='t/minutes', groupby=None,
-             colorbar=None, **kwargs):
+             colorbar=None, interval=slice(None), **kwargs):
         """
         Plot DataTaker's quantities against time.
 
@@ -639,7 +728,7 @@ class DataTaker():
         # to the args list
         if dependents == 'allsplit':
             iterator = self.dependents.keys()
-            appender = lambda arg: self.get(arg)
+            appender = lambda arg: self.get(arg, interval=interval)
         elif dependents == 'allmerge':
             def gen():
                 # Group dependents by property
@@ -649,7 +738,7 @@ class DataTaker():
                     # care of the cases with only one element
                     yield [self.dependents[q] for q in prop]
             iterator = gen()
-            appender = lambda arg: arg[0] if len(arg) == 1 else arg
+            appender = lambda arg: arg[0][interval] if len(arg) == 1 else arg[interval]
         elif any(delim in dependents for delim in ('(', '[', '{')):
             # Split but keep grouped quantities together
             iterator = [arg.strip('()')
@@ -665,15 +754,17 @@ class DataTaker():
                         del iterator[i]
             def appender(arg):
                 if ' ' in arg:
-                    return list(self.get(arg))
+                    return list(self.get(arg, interval=interval))
                 else:
-                    return self.get(arg)
+                    return self.get(arg, interval=interval)
         else:
+
             iterator = dependents.split()
             if groupby:
 
                 def quantity_from_group(arg, groupby, key):
-                    quantity = self.get(arg, **{groupby: key})
+                    quantity = self.get(arg, **{groupby: key},
+                                        interval=interval)
                     quantity.group = key
                     return quantity
 
@@ -681,12 +772,13 @@ class DataTaker():
                 appender = lambda arg: [quantity_from_group(arg, groupby, key)
                                         for key in groupby_indices]
             else:
-                appender = lambda arg: self.get(arg)
+                appender = lambda arg: self.get(arg, interval=interval)
 
         for arg in iterator:
             args.append(appender(arg))
 
         if groupby:
+
             commons = [[quantity_from_group(common, groupby, key)
                         for key in groupby_indices]
                         for common in independents.split()]
@@ -695,13 +787,16 @@ class DataTaker():
                     err_msg = 'colorbar cannot be set with more than one group.'
                     raise ValueError(err_msg)
                 key = list(groupby_indices.keys())[0]
-                colorbar_quantity = self.get(colorbar, **{groupby:key})
+                colorbar_quantity = self.get(colorbar, **{groupby:key},
+                                             interval=interval)
         else:
             if colorbar:
-                colorbar_quantity = self.get(colorbar)
-            commons = [self.get(common) for common in independents.split()]
+                colorbar_quantity = self.get(colorbar)[interval]
+            commons = [self.get(common, interval=interval)
+                       for common in independents.split()]
 
-        plot(self, *args, commons=commons, colorbar=colorbar_quantity, **kwargs)
+        _plot(self, *args, commons=commons, colorbar=colorbar_quantity,
+                    **kwargs)
 
     @ureg.wraps(None, (None, ureg.hertzs))
     def steady_state_steps_number(self, sd_limit=Q_('2 Hz')):
@@ -724,19 +819,21 @@ class DataTaker():
         frequency = self.get('f').m_as('Hz')
         mean = np.empty_like(frequency)
         var = np.empty_like(frequency)
-        steps_number = np.empty_like(frequency)
+        steps_number = np.ones_like(frequency)
         mean[0] = frequency[0]
         var[0] = 0
         buffer = 1
-        for i, f in enumerate(frequency[1:]):
+        for i, f in enumerate(frequency[1:], 1):
             mean[i] = (buffer*mean[i-1] + f) / (buffer + 1)
             var[i] = ((buffer*(var[i-1] + mean[i-1]**2) + f**2) / (buffer + 1)
                       - mean[i]**2)
-            buffer = buffer + 1
+            buffer += 1
             if sqrt(var[i]) > sd_limit:  # standard deviation higher than 2 Hz
                 mean[i] = f
                 var[i] = 0
                 steps_number[i-buffer:i] = buffer
+                if np.isnan(buffer):
+                    set_trace()
                 buffer = 0
         steps_number[-buffer:] = buffer
         return steps_number
@@ -779,3 +876,25 @@ class DataTaker():
                 checkargs = sauroneye._checkargs
                 args = ' '.join(checkargs[check] for check in v.errors)
                 self.plot(args)
+
+    @ureg.wraps(None, (None, ureg.minute))
+    def has_steady_state(self, time_limit=Q_('30 minutes')):
+        """
+        Check whether the test file associated with the DataTaker has
+        steady-state values.
+
+        Parameter
+        ---------
+        time_limit : Quantity, default 30 minutes.
+            If there is at least one steady-state period as long
+            as time_limit or longer, the method returns True,
+            otherwise it returns False.
+
+        Returns
+        -------
+        bool
+
+        """
+        Nss = self.steady_state_steps_number()
+        dts = Nss * self.get_timestep('Quantity').m_as('minutes')
+        return np.any(dts >= time_limit)
